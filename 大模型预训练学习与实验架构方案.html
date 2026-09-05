@@ -436,12 +436,116 @@
     </table>
   </section>
 
-  <!-- 5 实验方案定稿 -->
+  <!-- 5 训练目标与规模评估方法 -->
   <section>
-    <h2><span class="no">5</span>实验方案定稿（主实验）</h2>
+    <h2><span class="no">5</span>训练目标与规模评估方法</h2>
+    <p class="lead">开工写代码前必须先回答三个问题：<strong>① 训练目标怎么定、怎么评估；② 预训练数据规模（多少 token）怎么评估；③ 模型参数规模怎么评估</strong>。本章即讨论中「先做方案设计、再动手」的方法论沉淀。</p>
+
+    <h3>5.1 训练目标如何评估</h3>
+    <table>
+      <tr><th>维度</th><th>结论</th><th>说明</th></tr>
+      <tr><td>预训练学什么</td><td>语言本身的分布</td><td>词/子词表示、语法、事实、逻辑、next-token 概率；<strong>不是学「回答问题」</strong></td></tr>
+      <tr><td>训练目标（损失）</td><td>因果自回归 next-token 预测的交叉熵</td><td>全部 token 参与、无 mask；SFT 才会 mask user 部分</td></tr>
+      <tr><td>用什么指标评估</td><td>train_loss + eval_loss</td><td>预训练<strong>没有准确率、不做人类打分、不做对话评测</strong>（那是 SFT 之后的事）</td></tr>
+      <tr><td>loss 下降 = 在学</td><td>train_loss 持续下降</td><td>模型在拟合文本分布</td></tr>
+      <tr><td>过拟合拐点</td><td>eval_loss 先降后升</td><td>极小数据集几乎必然；eval_loss 最低点 = 泛化最好的 checkpoint</td></tr>
+    </table>
+    <div class="callout"><b>一句话标准：</b>训练目标不是「让模型变聪明」，而是<strong>loss 平稳下降、且你能读懂 loss 曲线每一段的含义</strong>（下降 = 在学、拐点 = 过拟合、震荡 = 超参问题）。</div>
+
+    <h3>5.2 预训练数据规模（大小）如何评估</h3>
+    <p><strong>第一步：把数据规模统一换算成 token 数</strong>（不要用「句数/字数」——模型算力与显存都按 token 计）。</p>
+    <div class="formula">总 token ≈ 样本条数 × 平均每样本 token 数</div>
+    <ul class="list">
+      <li>粗估：先用 tokenizer 编码几条样本看平均长度，再乘总条数。例：400 句（200 中 + 200 英）× 平均 12 token/句 ≈ <strong>4800 token</strong>。</li>
+      <li>精确：预处理时用 <code>len(tokenizer.encode(text))</code> 逐条统计，得到真实总数。</li>
+    </ul>
+    <p><strong>第二步：用 Chinchilla 定律判断「数据够不够」。</strong>工业最优配比约 <strong>1 个参数配 20 个训练 token</strong>（适合大数据集）。</p>
+    <ul class="list">
+      <li>我们 4800 token 的「最优参数」≈ 4800 ÷ 20 = 240 个参数 —— 现实中不存在，说明数据量远低于工业最优。</li>
+      <li><strong>核心判断：数据规模决定模型能做多大，而不是反过来。</strong>数据不足时模型容量必须压小（宁 5.5M，不可 100M），否则直接背样本、瞬间过拟合。</li>
+    </ul>
+
+    <h3>5.3 参数规模如何评估</h3>
+    <ul class="list">
+      <li><strong>容量匹配原则：</strong>容量过剩（参数过多）→ 死记硬背 → 过拟合；容量不足（参数过少）→ 特征装不下 → 欠拟合。</li>
+      <li><strong>小数据经验：优先加宽 hidden_size，不要盲目堆层数</strong>（矮胖优先于高瘦）；层数太深在数据少时易震荡、更快过拟合。</li>
+    </ul>
+    <p><strong>粗略核验公式（估算口径，非精确）：</strong></p>
+    <div class="formula">参数量 ≈ 9.3 × 层数 × hidden_size² ＋ vocab_size × hidden_size（Embedding/LM-Head 共享只算一份）</div>
+    <ul class="list">
+      <li>代入本实验：9.3 × 3 × 256² ≈ 1.83M；＋ 16384 × 256 ≈ 4.19M → 合计 ≈ 6.0M，与讨论确认的 <strong>~5.5M</strong> 同量级 ✅。</li>
+      <li>用途：改完配置立刻估算参数涨跌，不用等代码跑完。</li>
+    </ul>
+
+    <h3>5.4 决策流程：从数据规模 → 参数规模 → 组件配平</h3>
+    <div class="fig">
+      <svg viewBox="0 0 900 190" xmlns="http://www.w3.org/2000/svg" font-family="'PingFang SC','Microsoft YaHei',sans-serif">
+        <defs>
+          <marker id="ar5" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#94A3B8"/></marker>
+        </defs>
+        <g font-size="12" text-anchor="middle">
+          <g>
+            <rect x="6" y="22" width="160" height="104" rx="10" fill="#EAF1FE" stroke="#2563EB"/>
+            <text x="86" y="46" fill="#1D4ED8" font-weight="700">① 估算数据 token</text>
+            <text x="86" y="66" fill="#5B6470" font-size="10.5">句数 × 平均 token/句</text>
+            <text x="86" y="82" fill="#5B6470" font-size="10.5">例：400 × 12 ≈ 4800</text>
+            <text x="86" y="108" fill="#2563EB" font-size="10.5" font-weight="600">定「数据规模」</text>
+          </g>
+          <g>
+            <rect x="188" y="22" width="160" height="104" rx="10" fill="#EAF1FE" stroke="#2563EB"/>
+            <text x="268" y="46" fill="#1D4ED8" font-weight="700">② 定参数量级</text>
+            <text x="268" y="66" fill="#5B6470" font-size="10.5">Chinchilla 1:20 + 容量匹配</text>
+            <text x="268" y="82" fill="#5B6470" font-size="10.5">数据小 → 模型必须小</text>
+            <text x="268" y="108" fill="#2563EB" font-size="10.5" font-weight="600">目标 ~5.5M</text>
+          </g>
+          <g>
+            <rect x="370" y="22" width="160" height="104" rx="10" fill="#EAF1FE" stroke="#2563EB"/>
+            <text x="450" y="46" fill="#1D4ED8" font-weight="700">③ 定 hidden_size</text>
+            <text x="450" y="66" fill="#5B6470" font-size="10.5">head_dim ≈ 64</text>
+            <text x="450" y="82" fill="#5B6470" font-size="10.5">须能被头数整除</text>
+            <text x="450" y="108" fill="#2563EB" font-size="10.5" font-weight="600">256 ÷ 4 头 = 64</text>
+          </g>
+          <g>
+            <rect x="552" y="22" width="160" height="104" rx="10" fill="#EAF1FE" stroke="#2563EB"/>
+            <text x="632" y="46" fill="#1D4ED8" font-weight="700">④ 层数/头数/FFN</text>
+            <text x="632" y="66" fill="#5B6470" font-size="10.5">小数据少层数（3 层）</text>
+            <text x="632" y="82" fill="#5B6470" font-size="10.5">intermediate=8/3×h=682</text>
+            <text x="632" y="108" fill="#2563EB" font-size="10.5" font-weight="600">组件配平</text>
+          </g>
+          <g>
+            <rect x="734" y="22" width="160" height="104" rx="10" fill="#EDE9FE" stroke="#7C3AED"/>
+            <text x="814" y="46" fill="#6D28D9" font-weight="700">⑤ 复核显存/时长</text>
+            <text x="814" y="66" fill="#5B6470" font-size="10.5">权重+优化器+梯度+激活</text>
+            <text x="814" y="82" fill="#5B6470" font-size="10.5">FLOPs/算力 → 时间</text>
+            <text x="814" y="108" fill="#6D28D9" font-size="10.5" font-weight="600">能不能跑</text>
+          </g>
+        </g>
+        <g stroke="#94A3B8" stroke-width="1.6" marker-end="url(#ar5)">
+          <line x1="166" y1="74" x2="187" y2="74"/>
+          <line x1="348" y1="74" x2="369" y2="74"/>
+          <line x1="530" y1="74" x2="551" y2="74"/>
+          <line x1="712" y1="74" x2="733" y2="74"/>
+        </g>
+        <text x="6" y="160" fill="#5B6470" font-size="11.5">评估链条收口：数据 token → 参数量级（Chinchilla/容量匹配）→ hidden_size（head_dim≈64）→ 层数/FFN 配平 → 用显存公式与时长公式复核可行性</text>
+      </svg>
+      <div class="cap">图 5-1　规模评估决策流程（示意）：从数据规模出发，逐级推导参数规模与结构配平</div>
+    </div>
+    <table>
+      <tr><th>数据规模（总 token）</th><th>推荐参数量级</th><th>示例配置（讨论中确认）</th></tr>
+      <tr><td>≈4800（400 句）</td><td>~5.5M</td><td>hidden 256 / 3 层 / 4 头 / head_dim 64</td></tr>
+      <tr><td>≈9 万（6000 句）</td><td>~13M</td><td>hidden 384 / 4 层 / 6 头 / head_dim 64</td></tr>
+      <tr><td>200~300 万</td><td>25~30M</td><td>hidden 512 / 8 层（升级路径）</td></tr>
+      <tr><td>亿级</td><td>百 M 级</td><td>继续扩 hidden_size / 层数</td></tr>
+    </table>
+    <div class="callout good"><b>总结：</b>先估数据 token → 再定参数量级 → 最后配平结构并用显存/时长公式复核。这套「评估方法」对任何规模的预训练都成立，本实验只是把数字换成极小值。</div>
+  </section>
+
+  <!-- 6 实验方案定稿 -->
+  <section>
+    <h2><span class="no">6</span>实验方案定稿（主实验）</h2>
     <div class="callout good"><b>方案一句话：</b>200 句中文 + 200 句英文短句（≈4800 token），从零随机初始化一个 Dense Decoder-Only Transformer（约 5.5M 参数），全量 BF16 预训练，跑通完整链路并观察 loss / 过拟合现象。</div>
 
-    <h3>5.1 数据集规划</h3>
+    <h3>6.1 数据集规划</h3>
     <table>
       <tr><th>项</th><th>取值</th><th>说明</th></tr>
       <tr><td>原始数据</td><td>200 中文短句 + 200 英文短句</td><td>纯文本，无 user/assistant；预训练格式只有 <code>text</code> 字段（如「一加一等于二。苹果 apple。」）</td></tr>
@@ -453,7 +557,7 @@
     </table>
     <div class="callout warn"><b>预期：</b>400 句多样性极低，过拟合几乎必然很早就出现（train_loss 降、eval_loss 升），这是观察目标，不是配置错误。</div>
 
-    <h3>5.2 模型配置定稿</h3>
+    <h3>6.2 模型配置定稿</h3>
     <table>
       <tr><th>配置项</th><th>取值</th><th>说明</th></tr>
       <tr class="pick"><td>整体架构</td><td>Dense Decoder-Only Transformer</td><td>现代工业标准（Llama/Qwen 缩小版）</td></tr>
@@ -473,7 +577,7 @@
     </table>
     <div class="callout"><b>备选对照方案（可选，做对比用）：</b>hidden_size=192，layers=2，heads=3（192÷3=64），总参数约 2.2M —— 容量更低、更容易欠拟合，用来对比看「模型能力不够」是什么样子。</div>
 
-    <h3>5.3 训练超参</h3>
+    <h3>6.3 训练超参</h3>
     <table>
       <tr><th>项</th><th>取值</th><th>说明</th></tr>
       <tr><td>精度 precision</td><td>BF16</td><td>预训练首选</td></tr>
@@ -486,7 +590,7 @@
       <tr><td>max_seq_length</td><td>512</td><td>与 max_position_embeddings 一致</td></tr>
     </table>
 
-    <h3>5.4 显存估算（BF16 全量预训练）</h3>
+    <h3>6.4 显存估算（BF16 全量预训练）</h3>
     <p>预训练显存 = <strong>模型权重 + 优化器状态 + 梯度 + 激活值</strong>。全量训练时优化器状态是大头。</p>
     <div class="fig">
       <svg viewBox="0 0 560 190" xmlns="http://www.w3.org/2000/svg" font-family="'PingFang SC','Microsoft YaHei',sans-serif">
@@ -507,7 +611,7 @@
         <line x1="20" y1="130" x2="548" y2="130" stroke="#E4E3DD" stroke-width="1.5"/>
         <text x="20" y="148" fill="#6B7280" font-size="11">8G 显存线：整体总量远小于 8G，无需梯度检查点，可全量训练</text>
       </svg>
-      <div class="cap">图 5-1　显存构成估算（示意，比例不精确）：权重 ~11MB + 优化器 ~44MB + 梯度 ~11MB + 激活值（随 batch/seq_len 变化）数百 MB</div>
+      <div class="cap">图 6-1　显存构成估算（示意，比例不精确）：权重 ~11MB + 优化器 ~44MB + 梯度 ~11MB + 激活值（随 batch/seq_len 变化）数百 MB</div>
     </div>
     <ul class="list">
       <li>权重显存 = 参数 × 精度（BF16 = 2 字节/参数）→ 5.5M × 2 ≈ 11MB。</li>
@@ -517,7 +621,7 @@
       <li>一旦模型到 B 级别，优化器状态直接 GB 起跳 —— 这正是大模型全量训练吃显存的核心原因之一。</li>
     </ul>
 
-    <h3>5.5 训练时长估算</h3>
+    <h3>6.5 训练时长估算</h3>
     <div class="formula">FLOPs<sub>step</sub> ≈ 6 × N × batch_size × seq_len × hidden_size²</div>
     <ul class="list">
       <li>每步 FLOPs 乘 6（一次前向 ≈ 2 倍反向，反向约 2×前向，合计约 6×）。</li>
@@ -526,7 +630,7 @@
     </ul>
     <div class="callout"><b>本项目量级（估算）：</b>总训练 token ≈3840、batch×seq=2×512=1024，总步数仅约几十步量级，训练时间预计<strong>分钟级以内</strong>。对比工业界：万亿 token、上万 GPU 训练数月。</div>
 
-    <h3>5.6 预期观察现象（实验记录要点）</h3>
+    <h3>6.6 预期观察现象（实验记录要点）</h3>
     <ul class="list">
       <li>train_loss 稳步持续下降。</li>
       <li>eval_loss 前几个 epoch 下降，到达最低点后<strong>开始上升 → 过拟合</strong>。</li>
@@ -537,7 +641,7 @@
 
   <!-- 6 预训练完整流程 -->
   <section>
-    <h2><span class="no">6</span>预训练完整流程（分步）</h2>
+    <h2><span class="no">7</span>预训练完整流程（分步）</h2>
     <div class="steps">
       <div class="step"><div class="n">1</div><div class="body"><div class="t">定义预训练任务与玩具数据集</div><p>任务：因果自回归 next-token 预测。数据：纯文本 jsonl（<code>{"text":"…"}</code>），无对话标记。样例：「一加一等于二。二加二等于四。苹果 apple。香蕉 banana。」多复制凑几十~数百条。</p></div></div>
       <div class="step"><div class="n">2</div><div class="body"><div class="t">Tokenizer（预训练里极其关键）</div><p>完整工业流程是先<strong>自己训练 tokenizer</strong> 再训模型；个人实验复用现成 tokenizer（记录：真实工业这里是一步独立训练）。工作流：字符串 → 子词 token → 整数 id；截断到 max_seq_len；Packing 拼接。<strong>tokenizer 和模型强绑定：vocab_size 变了，LM-Head / Embedding 维度必须同步改。</strong></p></div></div>
@@ -569,7 +673,7 @@
 
   <!-- 7 评估 -->
   <section>
-    <h2><span class="no">7</span>评估策略</h2>
+    <h2><span class="no">8</span>评估策略</h2>
     <div class="callout good"><b>预训练不看「聊天效果」，主指标就是 loss。</b>对话评测属于 SFT 之后的事。</div>
     <table>
       <tr><th>阶段</th><th>指标</th><th>解读</th></tr>
@@ -583,7 +687,7 @@
 
   <!-- 8 故障 -->
   <section>
-    <h2><span class="no">8</span>常见故障与排查</h2>
+    <h2><span class="no">9</span>常见故障与排查</h2>
     <table>
       <tr><th>现象</th><th>可能原因</th><th>排查方向</th></tr>
       <tr><td>loss 不下降</td><td>学习率不对、数据坏、初始化错误、mask 错误</td><td>先检查数据与 mask；调 lr</td></tr>
@@ -596,7 +700,7 @@
 
   <!-- 9 学习路线图 -->
   <section>
-    <h2><span class="no">9</span>学习路线图（后续安排）</h2>
+    <h2><span class="no">10</span>学习路线图（后续安排）</h2>
     <div class="fig">
       <svg viewBox="0 0 880 130" xmlns="http://www.w3.org/2000/svg" font-family="'PingFang SC','Microsoft YaHei',sans-serif">
         <g font-size="12" text-anchor="middle">
@@ -634,13 +738,13 @@
         </g>
         <text x="2" y="112" fill="#5B6470" font-size="11.5">路线原则：先把 Dense 整套从零预训练完整跑通（吃透 tokenizer / 架构 / 显存 / loss / 过拟合），再逐步拓展到 GQA → MoE → SFT → DPO，每个环节都可平移到 7B 级生产底座。</text>
       </svg>
-      <div class="cap">图 9-1　学习路线图：Dense → GQA → MoE 对照 → SFT → DPO</div>
+      <div class="cap">图 10-1　学习路线图：Dense → GQA → MoE 对照 → SFT → DPO</div>
     </div>
   </section>
 
   <!-- 10 问答摘录 -->
   <section>
-    <h2><span class="no">10</span>讨论问答摘录</h2>
+    <h2><span class="no">11</span>讨论问答摘录</h2>
     <div class="card">
       <p><span class="label info">问答 1</span><b>Decoder-Only 为什么叫自回归？</b></p>
       <p style="font-size:13.5px">「回归」= 用已知变量预测另一变量；「自回归」= 用序列<strong>自己过去的输出</strong>预测下一步。推理时上一步生成的 token 会拼回输入成为下一步输入 —— 输入来源于模型自身过去的输出，故叫「自」回归。</p>
