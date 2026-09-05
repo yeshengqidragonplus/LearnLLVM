@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>大模型训练流程学习 · 学习与实验架构方案（讨论固化文档）</title>
+<style>
+  :root{
+    --text:#1A1B1C; --text2:#5B6470; --bg:#F4F3EE; --card:#FFFFFF;
+    --border:#E4E3DD; --accent:#2563EB; --accent-soft:#EAF1FE;
+    --green:#178A45; --green-soft:#E7F5EC; --amber:#B45309; --amber-soft:#FBF0DC;
+    --red:#C43A3A; --red-soft:#FBE9E9; --mono:#0F172A; --mono-bg:#F1F5F9;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); line-height:1.7; padding:0 0 80px;}
+  .wrap{max-width:1000px; margin:0 auto; padding:0 20px;}
+
+  /* 页头 */
+  header{background:linear-gradient(135deg,#1E3A8A,#2563EB 55%,#3B82F6); color:#fff; padding:52px 20px 44px;}
+  header .inner{max-width:1000px; margin:0 auto;}
+  .kicker{font-size:13px; letter-spacing:2px; opacity:.85; margin-bottom:10px;}
+  h1{font-size:30px; font-weight:700; line-height:1.3; letter-spacing:.5px;}
+  .subtitle{margin-top:12px; font-size:15px; opacity:.92; max-width:760px;}
+  .meta{display:flex; flex-wrap:wrap; gap:10px 22px; margin-top:22px; font-size:12.5px; opacity:.85;}
+  .meta span b{font-weight:600;}
+
+  /* 通用 */
+  section{margin:44px 0 0;}
+  h2{font-size:22px; font-weight:700; padding-bottom:10px; border-bottom:2px solid var(--accent); margin-bottom:18px; display:flex; align-items:center; gap:10px;}
+  h2 .no{background:var(--accent); color:#fff; border-radius:8px; width:30px; height:30px; min-width:30px; display:inline-flex; align-items:center; justify-content:center; font-size:15px;}
+  h3{font-size:17px; font-weight:650; margin:26px 0 10px; color:#111827;}
+  h4{font-size:15px; font-weight:600; margin:18px 0 8px; color:#1F2937;}
+  p{margin:8px 0; font-size:14.5px;}
+  .lead{font-size:15px;}
+
+  .card{background:var(--card); border:1px solid var(--border); border-radius:14px; padding:18px 20px; margin:14px 0;}
+  .callout{border-left:4px solid var(--accent); background:var(--accent-soft); padding:12px 16px; border-radius:0 10px 10px 0; margin:14px 0; font-size:14px;}
+  .callout.warn{border-left-color:#D97706; background:var(--amber-soft);}
+  .callout.good{border-left-color:#16A34A; background:var(--green-soft);}
+  .callout.danger{border-left-color:#DC2626; background:var(--red-soft);}
+  .callout b{color:inherit;}
+  .label{display:inline-block; font-size:11.5px; font-weight:600; padding:1px 9px; border-radius:20px; margin-right:6px; vertical-align:1px;}
+  .label.ok{background:var(--green-soft); color:var(--green);}
+  .label.info{background:var(--accent-soft); color:var(--accent);}
+  .label.warn{background:var(--amber-soft); color:var(--amber);}
+  .label.bad{background:var(--red-soft); color:var(--red);}
+
+  /* 表格 */
+  table{width:100%; border-collapse:collapse; margin:14px 0; font-size:13.5px; background:var(--card); border-radius:10px; overflow:hidden;}
+  th,td{border:1px solid var(--border); padding:9px 12px; text-align:left; vertical-align:top;}
+  th{background:#F8FAFC; font-weight:600; white-space:nowrap;}
+  td code{font-size:12.5px;}
+  tr:nth-child(even) td{background:#FBFCFE;}
+  .pick td:first-child{background:var(--green-soft); font-weight:600; color:var(--green);}
+
+  /* 代码 */
+  pre{background:var(--mono-bg); border:1px solid var(--border); border-radius:10px; padding:14px 16px; overflow-x:auto; font-size:12.5px; line-height:1.6; color:var(--mono); margin:12px 0;}
+  code{font-family:"SFMono-Regular",Consolas,"Courier New",monospace; background:var(--mono-bg); padding:1px 5px; border-radius:4px; font-size:12.5px; color:#BE185D;}
+  pre code{background:none; padding:0; color:var(--mono);}
+  .kw{color:#7C3AED;} .fn{color:#2563EB;} .cm{color:#6B7280;} .st{color:#047857;}
+
+  /* SVG 容器 */
+  .fig{margin:16px 0; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:16px; overflow-x:auto;}
+  .fig svg{display:block; width:100%; height:auto; min-width:560px;}
+  .fig .cap{font-size:12px; color:var(--text2); margin-top:8px; padding-top:8px; border-top:1px dashed var(--border);}
+  .figcap{font-size:12.5px; color:var(--text2); margin:6px 2px 2px;}
+
+  /* 步骤 */
+  .steps{counter-reset:st; margin:12px 0;}
+  .step{display:flex; gap:14px; margin:12px 0; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 16px;}
+  .step .n{counter-increment:st; flex:0 0 34px; width:34px; height:34px; border-radius:50%; background:var(--accent-soft); color:var(--accent); font-weight:700; display:flex; align-items:center; justify-content:center; font-size:14px; margin-top:2px;}
+  .step .body{flex:1; min-width:0;}
+  .step .body .t{font-weight:650; font-size:14.5px; color:#111827;}
+  .step .body p{font-size:13.5px; margin:4px 0;}
+
+  /* 对比双栏 */
+  .duo{display:flex; flex-wrap:wrap; gap:14px; margin:12px 0;}
+  .duo .box{flex:1 1 300px; border:1px solid var(--border); border-radius:12px; padding:14px 16px; background:var(--card);}
+  .duo .box h4{margin-top:0;}
+  .duo .box ul{margin:6px 0 0 18px; font-size:13.5px;}
+  .duo .box li{margin:4px 0;}
+  .duo .win{border-color:#16A34A; box-shadow:inset 0 0 0 1px rgba(22,163,74,.35);}
+  .duo .win h4{color:var(--green);}
+  .duo .lose h4{color:var(--text2);}
+
+  .formula{background:var(--mono-bg); border:1px solid var(--border); border-radius:10px; padding:12px 16px; font-family:"Times New Roman",Georgia,serif; font-size:15px; text-align:center; margin:12px 0;}
+  ul.list{margin:8px 0 8px 20px; font-size:14px;}
+  ul.list li{margin:5px 0;}
+  .toc{background:var(--card); border:1px solid var(--border); border-radius:14px; padding:18px 22px;}
+  .toc ol{margin-left:20px; font-size:14px;}
+  .toc li{margin:4px 0;}
+  .grid{display:flex; flex-wrap:wrap; gap:12px; margin:12px 0;}
+  .kv{flex:1 1 210px; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 16px;}
+  .kv .k{font-size:12px; color:var(--text2);}
+  .kv .v{font-size:17px; font-weight:700; color:var(--accent); margin-top:3px;}
+  footer{margin-top:60px; padding-top:20px; border-top:1px solid var(--border); font-size:12.5px; color:var(--text2);}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="inner">
+    <div class="kicker">学习 · 实验 · 讨论结果固化</div>
+    <h1>大模型训练流程学习<br>—— 从零预训练学习与实验架构方案</h1>
+    <p class="subtitle">本文档将「大模型训练流程学习」会话中的讨论结果固化为可复用的实验方案：先完整理解原理与选型，再以极小数据集（400 句中英短句）从零预训练一个 Dense Decoder-Only Transformer 小模型，跑通完整链路。</p>
+    <div class="meta">
+      <span><b>来源会话：</b>大模型训练流程学习</span>
+      <span><b>讨论时间：</b>2026-09-04 ~ 2026-09-05</span>
+      <span><b>定位：</b>学习 / 实验 / 非产品</span>
+      <span><b>硬件：</b>本地 4060-8G / 4070-8G</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- 目录 -->
+  <section>
+    <div class="toc">
+      <h4>目录</h4>
+      <ol>
+        <li>实验定位与目标</li>
+        <li>大模型训练全链路总览（含概念澄清）</li>
+        <li>关键技术选型决策（含理由）</li>
+        <li>核心概念学习记录</li>
+        <li>训练目标与规模评估方法</li>
+        <li>实验方案定稿（主实验）</li>
+        <li>预训练完整流程（分步）</li>
+        <li>评估策略</li>
+        <li>常见故障与排查</li>
+        <li>学习路线图（后续安排）</li>
+        <li>讨论问答摘录</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- 1 实验定位 -->
+  <section>
+    <h2><span class="no">1</span>实验定位与目标</h2>
+    <p class="lead">目标不是产出可用的产品模型，而是<strong>完整跑通一条大模型训练链路</strong>：看懂每个环节做什么、输入输出是什么、痛点在哪里。</p>
+    <div class="grid">
+      <div class="kv"><div class="k">模型规模</div><div class="v">~5.5M 参数</div></div>
+      <div class="kv"><div class="k">数据集</div><div class="v">400 句 / ≈4800 token</div></div>
+      <div class="kv"><div class="k">训练方式</div><div class="v">全量训练</div></div>
+      <div class="kv"><div class="k">显存需求</div><div class="v">&lt;&lt; 8G</div></div>
+    </div>
+    <div class="callout good"><b>核心口径：</b>走流程、做实验、看现象。极小数据集必然过拟合，这是<u>预期现象、不是 bug</u>——正是要亲手观察的「学习信号」。</div>
+    <p>讨论中确认的几条原则：</p>
+    <ul class="list">
+      <li>采用<strong>小参数量模型 + 小数据集</strong>做演示实验，大计算需求（如全量大模型预训练）留给 AutoDL 云端。</li>
+      <li>实验输出：训练日志、完整模型权重、推理测试输出、评估分数（train_loss / eval_loss）。</li>
+      <li>学习的是<strong>大公司验证过的最新工业技术</strong>，不学脱离生产实际的老旧方案。</li>
+    </ul>
+  </section>
+
+  <!-- 2 全链路 -->
+  <section>
+    <h2><span class="no">2</span>大模型训练全链路总览</h2>
+    <p class="lead">完整链路：<strong>需求定义 → 数据准备 → 基座模型选型 → 环境搭建 → 预训练 → SFT → DPO/RLHF → 模型合并导出 → 推理部署 → 评估 → 问题复盘</strong>。本次实验聚焦「预训练」这一段。</p>
+
+    <div class="fig">
+      <svg viewBox="0 0 920 120" xmlns="http://www.w3.org/2000/svg" font-family="'PingFang SC','Microsoft YaHei',sans-serif">
+        <defs>
+          <marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#2563EB"/></marker>
+        </defs>
+        <!-- 阶段条 -->
+        <g font-size="11.5" text-anchor="middle">
+          <g>
+            <rect x="2" y="8" width="96" height="52" rx="8" fill="#EAF1FE" stroke="#2563EB"/>
+            <text x="50" y="30" fill="#1D4ED8" font-weight="600">需求定义</text>
+            <text x="50" y="46" fill="#5B6470">定位/目标</text>
+          </g>
+          <g>
+            <rect x="104" y="8" width="96" height="52" rx="8" fill="#EAF1FE" stroke="#2563EB"/>
+            <text x="152" y="30" fill="#1D4ED8" font-weight="600">数据准备</text>
+            <text x="152" y="46" fill="#5B6470">采集/清洗/分词</text>
+          </g>
+          <g>
+            <rect x="206" y="8" width="96" height="52" rx="8" fill="#EAF1FE" stroke="#2563EB"/>
+            <text x="254" y="30" fill="#1D4ED8" font-weight="600">模型选型</text>
+            <text x="254" y="46" fill="#5B6470">架构/规模</text>
+          </g>
+          <g>
+            <rect x="308" y="8" width="96" height="52" rx="8" fill="#EAF1FE" stroke="#2563EB"/>
+            <text x="356" y="30" fill="#1D4ED8" font-weight="600">环境搭建</text>
+            <text x="356" y="46" fill="#5B6470">依赖/显卡</text>
+          </g>
+          <!-- 预训练高亮 -->
+          <g>
+            <rect x="410" y="0" width="100" height="68" rx="10" fill="#2563EB"/>
+            <text x="460" y="28" fill="#fff" font-weight="700">预训练</text>
+            <text x="460" y="45" fill="#DBEAFE" font-size="10.5">Pretrain</text>
+            <text x="460" y="59" fill="#DBEAFE" font-size="10.5">← 本次聚焦</text>
+          </g>
+          <g>
+            <rect x="516" y="8" width="96" height="52" rx="8" fill="#EDE9FE" stroke="#7C3AED"/>
+            <text x="564" y="30" fill="#6D28D9" font-weight="600">SFT</text>
+            <text x="564" y="46" fill="#5B6470">指令微调</text>
+          </g>
+          <g>
+            <rect x="618" y="8" width="96" height="52" rx="8" fill="#EDE9FE" stroke="#7C3AED"/>
+            <text x="666" y="30" fill="#6D28D9" font-weight="600">DPO/RLHF</text>
+            <text x="666" y="46" fill="#5B6470">偏好对齐</text>
+          </g>
+          <g>
+            <rect x="720" y="8" width="96" height="52" rx="8" fill="#FCE7F3" stroke="#DB2777"/>
+            <text x="768" y="30" fill="#BE185D" font-weight="600">合并导出</text>
+            <text x="768" y="46" fill="#5B6470">合并权重</text>
+          </g>
+          <g>
+            <rect x="822" y="8" width="96" height="52" rx="8" fill="#FCE7F3" stroke="#DB2777"/>
+            <text x="870" y="30" fill="#BE185D" font-weight="600">部署/评估</text>
+            <text x="870" y="46" fill="#5B6470">推理/复盘</text>
+          </g>
+        </g>
+        <!-- 箭头 -->
+        <g stroke="#2563EB" stroke-width="1.6" marker-end="url(#ar)">
+          <line x1="98" y1="34" x2="103" y2="34"/>
+          <line x1="200" y1="34" x2="205" y2="34"/>
+          <line x1="302" y1="34" x2="307" y2="34"/>
+          <line x1="404" y1="34" x2="409" y2="34"/>
+          <line x1="510" y1="34" x2="515" y2="34"/>
+          <line x1="612" y1="34" x2="617" y2="34"/>
+          <line x1="714" y1="34" x2="719" y2="34"/>
+          <line x1="816" y1="34" x2="821" y2="34"/>
+        </g>
+        <text x="2" y="96" fill="#5B6470" font-size="11.5">蓝色 = 当前阶段主线；紫色 = 后续微调/对齐阶段；粉色 = 产出与部署阶段</text>
+      </svg>
+      <div class="cap">图 2-1　大模型训练全链路总览（本次实验聚焦「预训练」阶段）</div>
+    </div>
+
+    <h3>概念澄清（讨论中反复强调）</h3>
+    <table>
+      <tr><th>概念</th><th>做什么</th><th>关键区别</th></tr>
+      <tr class="pick"><td>预训练 Pretrain</td><td>随机初始化全部权重，喂海量纯文本，做自回归 next-token 预测，学语言本身</td><td>权重全部随机；成本极高；本次实验要做的</td></tr>
+      <tr><td>继续预训练 Continue-Pretrain</td><td>在现成已训练基座上继续喂文本</td><td>加载了别人训好的权重 —— 不是原生「从零」流程，讨论中明确跳步纠正过</td></tr>
+      <tr><td>SFT 监督微调</td><td>用「问题-回答」指令样本微调，教模型按指令回答</td><td>只对 assistant 回答算 loss，user 提问 mask 掉</td></tr>
+      <tr><td>DPO / RLHF</td><td>人类偏好对齐，让回答更符合人类喜好</td><td>用「好回答+坏回答」配对样本</td></tr>
+      <tr><td>LoRA</td><td>低秩适配器：不改基座权重，只训练小适配器</td><td>个人微调首选、显存友好；但本次预训练用<strong>全量训练</strong></td></tr>
+    </table>
+    <div class="callout warn"><b>重要区分：</b>本次实验是<strong>真正从零预训练（随机初始化全部权重）</strong>，不是继续预训练。流程、算法、数据、训练循环、损失函数与工业界完全一致，只是数据集极小。</div>
+  </section>
+
+  <!-- 3 技术选型 -->
+  <section>
+    <h2><span class="no">3</span>关键技术选型决策（含理由）</h2>
+
+    <h3>3.1 架构选型：Decoder-Only（三选一）</h3>
+    <table>
+      <tr><th>架构</th><th>代表</th><th>预训练任务</th><th>优点</th><th>缺点</th><th>结论</th></tr>
+      <tr class="pick"><td>Decoder-Only（因果自回归）</td><td>GPT / Llama / Qwen / Mistral</td><td>下一个 token 预测</td><td>生成能力最强；架构简单；工业界通用大模型全部采用；推理部署简单</td><td>长上下文成本高；理解弱于 Encoder</td><td>✅ 我们选这个</td></tr>
+      <tr><td>Encoder-Only</td><td>BERT</td><td>掩码填空 MLM</td><td>理解强，适合分类/语义检索</td><td>不能直接做自由生成</td><td>不选</td></tr>
+      <tr><td>Encoder-Decoder</td><td>T5 / BART</td><td>去噪、序列到序列</td><td>擅长翻译、摘要</td><td>同参数下通用生成弱；推理链路复杂</td><td>不选</td></tr>
+    </table>
+    <div class="callout"><b>理解要点：</b>Decoder-Only 就是「因果自回归」架构 —— 每个位置只能看到它自己及前面的 token（因果掩码），绝看不到未来。预训练任务叫 <strong>CLM（Causal Language Model）</strong>：架构是「网络长什么样」，CLM 是「拿什么目标去训练」。</div>
+
+    <h3>3.2 Dense（稠密） vs MoE（混合专家）：选 Dense</h3>
+    <p class="lead">讨论澄清了一个关键误区：<strong>现代大厂不是全部用 MoE，Dense 和 MoE 是两套并行生产路线，MoE 不等于最新、Dense 不等于过时。</strong></p>
+    <div class="duo">
+      <div class="box win">
+        <h4>Dense 稠密（标准 FFN）· 主实验选型</h4>
+        <ul>
+          <li>每个 token，<strong>全部 FFN 参数参与计算</strong>。</li>
+          <li>代表：Llama3 全系、Qwen2.5/3 中小底座、Mistral-7B/14B、Claude Opus。</li>
+          <li>训练稳定，无路由/负载均衡坑，loss 曲线干净好调试。</li>
+          <li>微调、SFT、DPO 链路成熟；单卡消费级 GPU 可跑，无需多卡通信。</li>
+          <li><strong>7B~30B 底座、企业底座、私有化部署、垂直领域依然是 Dense 主流。</strong></li>
+        </ul>
+      </div>
+      <div class="box lose">
+        <h4>MoE 混合专家 · 后续对照实验</h4>
+        <ul>
+          <li>只替换 FFN：拆成 N 个专家 + 门控 Router，每个 token 选 top-K 专家。</li>
+          <li>代表：Mixtral、DeepSeek-V2/V4、Qwen-MoE、Llama4 Scout。</li>
+          <li><strong>不是省显存，是省 FLOPs</strong>：所有专家权重常驻显存，显存开销巨大。</li>
+          <li>必须加负载均衡 aux_loss，否则「专家坍缩」。</li>
+          <li>极小数据集几乎无法产生专家分工；公开有效 MoE 基线激活参数普遍几百 M 以上。</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout warn"><b>结论：</b>MoE 不是用来做 5M~几十 M 小模型玩具预训练的技术。本次主实验用 <strong>Dense Decoder-Only Transformer（= 把 Llama/Qwen 工业架构做缩小版）</strong>；MoE 留到完全理解 Dense 之后做「只替换 FFN」的对照实验。</div>
+
+    <h3>3.3 Decoder-Only 内部组件选型（全部对齐现代大厂标准）</h3>
+    <table>
+      <tr><th>组件</th><th>工业标准（Llama3/Qwen2）</th><th>我们选型</th><th>说明</th></tr>
+      <tr class="pick"><td>整体架构</td><td>Decoder-Only Transformer</td><td>同左</td><td>去掉 encoder、去掉 cross-attention，只堆叠 Decoder Block</td></tr>
+      <tr class="pick"><td>归一化</td><td>RMSNorm + Pre-LN</td><td>同左</td><td>Pre-LN 放残差支路输入前，深层训练更稳；不用老的 Post-LN</td></tr>
+      <tr class="pick"><td>位置编码</td><td>RoPE 旋转位置编码</td><td>同左</td><td>支持上下文外推，工业标配；不用绝对位置编码/ALiBi</td></tr>
+      <tr class="pick"><td>激活函数</td><td>SwiGLU (silu)</td><td>同左</td><td>替换老 GELU；FFN 中间维度惯例 <code>hidden_size × 8/3</code></td></tr>
+      <tr class="pick"><td>注意力</td><td>GQA</td><td>MHA（后续可切 GQA）</td><td>MHA 是 GQA 特例；玩具实验先 MHA 减少变量，理解后切 GQA 贴近真实模型</td></tr>
+      <tr class="pick"><td>FFN</td><td>Dense 稠密前馈网络</td><td>同左</td><td>7B-30B 主流底座默认 Dense，不是 MoE</td></tr>
+      <tr class="pick"><td>权重</td><td>Embedding 与 LM-Head 权重共享（tie）</td><td><code>tie_embeddings=True</code></td><td>降低参数量，开源模型大量使用</td></tr>
+      <tr class="pick"><td>精度方案</td><td>BF16</td><td>BF16</td><td>数值范围大不易溢出，预训练首选；<strong>预训练阶段不用量化</strong>（量化用于推理/微调）</td></tr>
+    </table>
+
+    <h4>为什么不用量化做预训练</h4>
+    <div class="callout"><b>关键点：</b>4-bit/8-bit 量化<strong>不能用于全量预训练</strong>，只能用于推理或 LoRA 微调省显存。预训练主流是 BF16。本实验 5.5M 参数全量 BF16 显存远小于 8G，根本不需要量化，也不需要 LoRA。</div>
+  </section>
+
+  <!-- 4 核心概念 -->
+  <section>
+    <h2><span class="no">4</span>核心概念学习记录</h2>
+    <p class="lead">以下为讨论中逐步确认的学习要点，作为知识沉淀。</p>
+
+    <h3>4.1 什么是「自回归」（Auto-Regressive）</h3>
+    <p>「自回归」= <strong>用序列自己过去的结果，预测下一步</strong>。数学上就是条件概率公式：</p>
+    <div class="formula">P(x<sub>t</sub> | x<sub>1</sub>, x<sub>2</sub>, …, x<sub>t-1</sub>)</div>
+    <p>每一步预测只依赖<strong>该序列自身前面已生成的历史</strong>，所以叫「自」回归。</p>
+    <ul class="list">
+      <li><strong>训练阶段</strong>：手里有完整文本，靠因果掩码一次性并行算全部位置 loss —— 工程并行加速，任务本身仍是自回归。</li>
+      <li><strong>推理阶段</strong>：逐 token 迭代 —— 把上一步模型自己输出的 token 拼回输入，再预测下一个。输入来源于模型<strong>自身过去的输出</strong>，这才是「自回归」最直观的体现。</li>
+    </ul>
+    <div class="callout warn"><b>易错点：</b>「自回归」≠「只能一个 token 一个 token 跑」。推理必须逐 token；训练可并行，是工程优化。</div>
+
+    <h3>4.2 条件概率公式拆解（P(x<sub>t</sub> | x<sub>1</sub>…x<sub>t-1</sub>)）</h3>
+    <ul class="list">
+      <li>x：一个 token；下标 t：序列第 t 个位置。</li>
+      <li>x<sub>t</sub>：想预测的第 t 个 token；x<sub>1</sub>…x<sub>t-1</sub>：它前面已出现的 token。</li>
+      <li>竖线「|」：条件符号，读作「已知 / 给定」。</li>
+      <li>整句翻译：<strong>已知前面已有 x<sub>1</sub>…x<sub>t-1</sub>，求下一个是 x<sub>t</sub> 的概率。</strong></li>
+    </ul>
+    <p>整句概率 = 各步条件概率连乘：</p>
+    <div class="formula">P(x<sub>1</sub>,…,x<sub>T</sub>) = ∏<sub>t=1..T</sub> P(x<sub>t</sub> | x<sub>1</sub>,…,x<sub>t-1</sub>)</div>
+
+    <h3>4.3 交叉熵（Cross-Entropy）—— 预训练的 loss</h3>
+    <p>用来衡量<strong>模型预测的概率分布和真实答案的差距</strong>。数值越小 = 猜得越准；越大 = 猜得越离谱。</p>
+    <div class="formula">H(p,q) = −∑ p<sub>i</sub> log(q<sub>i</sub>)　→　CE = −log(q<sub>true</sub>)</div>
+    <ul class="list">
+      <li>真实标签是 one-hot（正确 token 概率=1，其余=0），求和后只剩一项。</li>
+      <li>例：真实答案是「二」，模型给「二」0.9 → CE≈0.105（好）；给 0.25 → ≈1.386（一般）；给 0.01 → ≈4.605（差）。</li>
+      <li><strong>为什么不用准确率</strong>：准确率只判断是否命中；交叉熵会惩罚「给正确词信心不够」，梯度信息更丰富。</li>
+      <li>PyTorch 的 <code>CrossEntropyLoss</code> 内部自带 softmax，直接传 logits 即可。</li>
+      <li><strong>预训练对序列每一个 token 都算交叉熵、取平均；SFT 只对 assistant 回答部分算 loss。</strong></li>
+    </ul>
+
+    <h3>4.4 hidden_size（隐藏维度）是什么、为什么取 256</h3>
+    <p>每个 token 经过 Embedding 后变成一个<strong>数字向量</strong>；hidden_size = 这个向量的维度。例如 hidden_size=256，每个 token 就是 256 个浮点数组成的向量，代表它在模型内部的语义表示。所有层（注意力、FFN）都在对这一组向量做变换。</p>
+    <ul class="list">
+      <li>hidden_size 越大 → 表达能力越强，但参数量近乎平方上涨、显存变大；小数据集下容量过剩 → 直接过拟合、死记样本。</li>
+      <li>hidden_size 太小 → 装不下足够特征 → 欠拟合，loss 降不下去。</li>
+      <li><strong>为什么 256：</strong>本实验 400 句/≈4800 token，数据极小。128 太小（中英混合装不下）、512 偏大（更快过拟合）。256 平衡表达能力，且 <code>256 ÷ 4 头 = 64</code>，正好是行业经典的 head_dim=64。</li>
+    </ul>
+    <div class="callout warn"><b>硬约束：</b>head_dim 尽量保持 64；hidden_size 必须能被注意力头数整除，否则代码直接报错。</div>
+
+    <h3>4.5 num_hidden_layers：为什么把多个 Decoder Block 套在一起</h3>
+    <p>每一层 Block = 一轮更深层次的理解：<strong>浅层抓简单局部关系，深层抓复杂、远距离的关系</strong>。一层 Decoder 能力会非常弱。</p>
+    <div class="fig">
+      <svg viewBox="0 0 560 470" xmlns="http://www.w3.org/2000/svg" font-family="'PingFang SC','Microsoft YaHei',sans-serif">
+        <!-- 输入 -->
+        <text x="280" y="22" text-anchor="middle" fill="#5B6470" font-size="12">输入 token 文本：「一加一等于二」</text>
+        <rect x="180" y="32" width="200" height="30" rx="8" fill="#EAF1FE" stroke="#2563EB"/>
+        <text x="280" y="52" text-anchor="middle" fill="#1D4ED8" font-size="12">Token Embedding（256 维向量）</text>
+        <line x1="280" y1="62" x2="280" y2="76" stroke="#2563EB" stroke-width="1.6" marker-end="url(#ar)"/>
+        <!-- Block 3 -->
+        <g>
+          <rect x="150" y="80" width="260" height="92" rx="10" fill="#2563EB"/>
+          <text x="280" y="102" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">Decoder Block #3（第 3 层）</text>
+          <text x="280" y="126" text-anchor="middle" fill="#DBEAFE" font-size="11.5">Masked 多头注意力 MHA（因果掩码）</text>
+          <text x="280" y="146" text-anchor="middle" fill="#DBEAFE" font-size="11.5">FFN 前馈网络（SwiGLU）</text>
+          <text x="280" y="164" text-anchor="middle" fill="#93C5FD" font-size="10.5">句子级理解</text>
+        </g>
+        <line x1="280" y1="172" x2="280" y2="186" stroke="#2563EB" stroke-width="1.6" marker-end="url(#ar)"/>
+        <!-- Block 2 -->
+        <g>
+          <rect x="150" y="190" width="260" height="92" rx="10" fill="#3B82F6"/>
+          <text x="280" y="212" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">Decoder Block #2（第 2 层）</text>
+          <text x="280" y="236" text-anchor="middle" fill="#DBEAFE" font-size="11.5">Masked 多头注意力 MHA</text>
+          <text x="280" y="256" text-anchor="middle" fill="#DBEAFE" font-size="11.5">FFN 前馈网络（SwiGLU）</text>
+          <text x="280" y="274" text-anchor="middle" fill="#DBEAFE" font-size="10.5">短语级理解</text>
+        </g>
+        <line x1="280" y1="282" x2="280" y2="296" stroke="#2563EB" stroke-width="1.6" marker-end="url(#ar)"/>
+        <!-- Block 1 -->
+        <g>
+          <rect x="150" y="300" width="260" height="92" rx="10" fill="#60A5FA"/>
+          <text x="280" y="322" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">Decoder Block #1（第 1 层）</text>
+          <text x="280" y="346" text-anchor="middle" fill="#EFF6FF" font-size="11.5">Masked 多头注意力 MHA（找相邻词关系）</text>
+          <text x="280" y="366" text-anchor="middle" fill="#EFF6FF" font-size="11.5">FFN 前馈网络</text>
+          <text x="280" y="384" text-anchor="middle" fill="#DBEAFE" font-size="10.5">词性/表层特征</text>
+        </g>
+        <line x1="280" y1="392" x2="280" y2="406" stroke="#2563EB" stroke-width="1.6" marker-end="url(#ar)"/>
+        <!-- 输出 -->
+        <rect x="170" y="410" width="220" height="30" rx="8" fill="#FCE7F3" stroke="#DB2777"/>
+        <text x="280" y="430" text-anchor="middle" fill="#BE185D" font-size="12">LM-Head → 词表概率 → 交叉熵 loss</text>
+        <text x="508" y="360" fill="#5B6470" font-size="11" text-anchor="middle">数据从下往上串行流过，</text>
+        <text x="508" y="376" fill="#5B6470" font-size="11" text-anchor="middle">3 个 Block 结构相同但</text>
+        <text x="508" y="392" fill="#5B6470" font-size="11" text-anchor="middle">各有独立可训练权重</text>
+      </svg>
+      <div class="cap">图 4-1　Decoder-Only 架构堆叠示意（num_hidden_layers=3）：3 个结构相同、权重独立的 Decoder Block 串行堆叠（示意）</div>
+    </div>
+    <ul class="list">
+      <li>每个 Block 内部两件事：<strong>注意力（找词与词关系）+ FFN（对每个 token 做非线性变换、提炼特征）</strong>。</li>
+      <li>为什么不是越多越好：层数太多 → 参数变多更容易过拟合、深层网络容易梯度消失/爆炸导致<strong>训练震荡</strong>。工业大模型敢堆 24~64 层，是因为有海量数据 + RMSNorm/残差/warmup 稳住训练。</li>
+      <li>残差连接（输出 = 输入 + 处理结果）保证原始信息能一路后传，这是能堆多层的关键。</li>
+    </ul>
+
+    <h3>4.6 多头注意力 vs 多层 Decoder：两者的区别</h3>
+    <p>这是讨论中一个经典混淆点：</p>
+    <div class="duo">
+      <div class="box win">
+        <h4>多头注意力（num_attention_heads）</h4>
+        <p><strong>同一遍思考里，多双眼睛从不同角度看。</strong>在单个 Block 内部，把向量切多份交给多个头：头1 看主谓、头2 看修饰、头3 看时序……各头算完拼回来。</p>
+        <p style="color:#6B7280;font-size:13px">局限：只做「观察、建立词与词关联」，<strong>不能迭代升级语义</strong>。</p>
+      </div>
+      <div class="box win">
+        <h4>多层 Decoder（num_hidden_layers）</h4>
+        <p><strong>完整思考流程重复多轮，迭代加深理解。</strong>第 1 层输出初级理解 → 第 2 层在已加工语义上再找深层关系 → 第 3 层看到整句逻辑。</p>
+        <p style="color:#6B7280;font-size:13px">关键：第 2 层注意力看的<strong>不是原始文字，而是第 1 层处理后的向量</strong>。</p>
+      </div>
+    </div>
+    <div class="callout"><b>记忆口诀：</b>多头注意力 = 一遍思考、多双眼睛看；多层 Decoder = 看完一遍、再完整思考好几遍。多头负责多角度观察，多层负责迭代加深理解，两者互补、不可替代。</div>
+
+    <h3>4.7 训练震荡 vs 过拟合（两个现象别搞混）</h3>
+    <div class="fig">
+      <svg viewBox="0 0 560 250" xmlns="http://www.w3.org/2000/svg" font-family="'PingFang SC','Microsoft YaHei',sans-serif">
+        <!-- 左：正常+过拟合 -->
+        <text x="140" y="18" text-anchor="middle" fill="#111827" font-size="12.5" font-weight="600">正常训练 → 后期过拟合</text>
+        <polyline points="20,190 60,150 100,122 140,104 180,92 220,84 260,80 300,78 340,80 380,86 420,98 460,118 500,148 540,190" fill="none" stroke="#2563EB" stroke-width="2"/>
+        <text x="300" y="70" text-anchor="middle" fill="#2563EB" font-size="10.5">train_loss 持续下降</text>
+        <polyline points="20,196 60,172 100,150 140,130 180,114 220,102 260,96 300,94 340,104 380,126 420,158 460,196 500,226 540,238" fill="none" stroke="#DC2626" stroke-width="2" stroke-dasharray="5 4"/>
+        <text x="505" y="116" text-anchor="middle" fill="#DC2626" font-size="10.5">eval_loss 先降后升</text>
+        <text x="330" y="236" text-anchor="middle" fill="#6B7280" font-size="10.5">epoch →</text>
+        <!-- 右：震荡 -->
+        <text x="420" y="18" text-anchor="middle" fill="#111827" font-size="12.5" font-weight="600">训练震荡（故障）</text>
+        <polyline points="300,110 330,60 360,150 390,80 420,170 450,70 480,160 510,90 540,140" fill="none" stroke="#D97706" stroke-width="2"/>
+        <text x="420" y="190" text-anchor="middle" fill="#D97706" font-size="10.5">loss 上蹿下跳、不收敛</text>
+        <text x="420" y="236" text-anchor="middle" fill="#6B7280" font-size="10.5">epoch →</text>
+        <line x1="290" y1="20" x2="290" y2="228" stroke="#E4E3DD" stroke-width="1"/>
+      </svg>
+      <div class="cap">图 4-2　过拟合（train 降、eval 先降后升）与训练震荡（loss 不收敛）对比示意</div>
+    </div>
+    <table>
+      <tr><th>现象</th><th>表现</th><th>原因</th><th>应对</th></tr>
+      <tr><td>过拟合</td><td>train_loss 持续下降，eval_loss 先降后升</td><td>数据集极小，模型把样本背下来（预期现象）</td><td>记录 eval_loss 最低点 = 泛化最好的 checkpoint</td></tr>
+      <tr><td>训练震荡</td><td>loss 忽高忽低、跳上跳下不收敛</td><td>lr 太大 / 缺少 warmup / 层数太深数据太少 / 梯度爆炸</td><td>warmup、调低 lr、gradient_clipping=1.0、减层数</td></tr>
+      <tr><td>loss = NaN</td><td>数值失效</td><td>梯度爆炸、精度溢出</td><td>梯度裁剪、降低学习率</td></tr>
+    </table>
+  </section>
+
+  <!-- 5 实验方案定稿 -->
+  <section>
+    <h2><span class="no">5</span>实验方案定稿（主实验）</h2>
+    <div class="callout good"><b>方案一句话：</b>200 句中文 + 200 句英文短句（≈4800 token），从零随机初始化一个 Dense Decoder-Only Transformer（约 5.5M 参数），全量 BF16 预训练，跑通完整链路并观察 loss / 过拟合现象。</div>
+
+    <h3>5.1 数据集规划</h3>
+    <table>
+      <tr><th>项</th><th>取值</th><th>说明</th></tr>
+      <tr><td>原始数据</td><td>200 中文短句 + 200 英文短句</td><td>纯文本，无 user/assistant；预训练格式只有 <code>text</code> 字段（如「一加一等于二。苹果 apple。」）</td></tr>
+      <tr><td>总 token 估算</td><td>≈4800 token</td><td>400 句 × 平均 12 token/句</td></tr>
+      <tr><td>划分</td><td>train 80% = 320 句；val 20% = 80 句</td><td><strong>必须留验证集</strong>，观察过拟合</td></tr>
+      <tr><td>train / val token</td><td>≈3840 / ≈960</td><td>按比例换算</td></tr>
+      <tr><td>预处理</td><td>Packing 样本打包</td><td>多条短样本拼接、中间插 <code>&lt;eos&gt;</code> 分隔，填满序列，减少 padding，提升效率</td></tr>
+      <tr><td>文件格式</td><td>jsonl</td><td>一行一条样本的行业标准存储</td></tr>
+    </table>
+    <div class="callout warn"><b>预期：</b>400 句多样性极低，过拟合几乎必然很早就出现（train_loss 降、eval_loss 升），这是观察目标，不是配置错误。</div>
+
+    <h3>5.2 模型配置定稿</h3>
+    <table>
+      <tr><th>配置项</th><th>取值</th><th>说明</th></tr>
+      <tr class="pick"><td>整体架构</td><td>Dense Decoder-Only Transformer</td><td>现代工业标准（Llama/Qwen 缩小版）</td></tr>
+      <tr class="pick"><td>预训练任务</td><td>Causal Language Model（CLM）</td><td>因果自回归 next-token 预测</td></tr>
+      <tr class="pick"><td>hidden_size</td><td>256</td><td>256 ÷ 4 头 = head_dim 64</td></tr>
+      <tr class="pick"><td>num_hidden_layers</td><td>3</td><td>数据太少，不再堆深，防震荡/过拟合</td></tr>
+      <tr class="pick"><td>num_attention_heads</td><td>4</td><td>MHA 标准多头</td></tr>
+      <tr class="pick"><td>num_key_value_heads</td><td>4</td><td>MHA；后续可改 GQA 贴近真实大模型</td></tr>
+      <tr class="pick"><td>max_position_embeddings</td><td>512</td><td>短句足够，不浪费显存</td></tr>
+      <tr class="pick"><td>intermediate_size</td><td>682</td><td>int(256 × 8/3)，SwiGLU 惯例公式</td></tr>
+      <tr class="pick"><td>activation</td><td>silu（SwiGLU）</td><td>现代模型标准激活</td></tr>
+      <tr class="pick"><td>position_encoding</td><td>RoPE</td><td>旋转位置编码</td></tr>
+      <tr class="pick"><td>norm</td><td>RMSNorm（Pre-LN）</td><td>深层训练更稳</td></tr>
+      <tr class="pick"><td>vocab_size</td><td>16384</td><td>中英混合；若复用 tokenizer 则跟随其 vocab_size</td></tr>
+      <tr class="pick"><td>tie_embeddings</td><td>True</td><td>Embedding 与 LM-Head 权重共享，降参数量</td></tr>
+      <tr><td><strong>预估总参数量</strong></td><td><strong>≈5.5M</strong></td><td>百万级，非 B 级，适合流程实验</td></tr>
+    </table>
+    <div class="callout"><b>备选对照方案（可选，做对比用）：</b>hidden_size=192，layers=2，heads=3（192÷3=64），总参数约 2.2M —— 容量更低、更容易欠拟合，用来对比看「模型能力不够」是什么样子。</div>
+
+    <h3>5.3 训练超参</h3>
+    <table>
+      <tr><th>项</th><th>取值</th><th>说明</th></tr>
+      <tr><td>精度 precision</td><td>BF16</td><td>预训练首选</td></tr>
+      <tr><td>优化器</td><td>AdamW</td><td>预训练标准优化器</td></tr>
+      <tr><td>learning_rate</td><td>3e-4</td><td>小模型预训练学习率偏高</td></tr>
+      <tr><td>warmup_steps</td><td>总 step 的 5%</td><td><strong>预训练必须 warmup</strong>，防止初期震荡</td></tr>
+      <tr><td>lr_scheduler</td><td>Cosine 余弦退火</td><td>配合 warmup</td></tr>
+      <tr><td>gradient_clipping</td><td>1.0</td><td>防梯度爆炸</td></tr>
+      <tr><td>batch_size</td><td>2</td><td>小模型小 batch</td></tr>
+      <tr><td>max_seq_length</td><td>512</td><td>与 max_position_embeddings 一致</td></tr>
+    </table>
+
+    <h3>5.4 显存估算（BF16 全量预训练）</h3>
+    <p>预训练显存 = <strong>模型权重 + 优化器状态 + 梯度 + 激活值</strong>。全量训练时优化器状态是大头。</p>
+    <div class="fig">
+      <svg viewBox="0 0 560 190" xmlns="http://www.w3.org/2000/svg" font-family="'PingFang SC','Microsoft YaHei',sans-serif">
+        <text x="20" y="22" fill="#111827" font-size="12.5" font-weight="600">显存构成（5.5M 参数 × BF16，估算）</text>
+        <!-- 权重 -->
+        <rect x="20" y="40" width="66" height="24" fill="#2563EB"/>
+        <text x="53" y="86" text-anchor="middle" fill="#2563EB" font-size="11">权重 ~11MB</text>
+        <!-- 优化器 -->
+        <rect x="98" y="40" width="264" height="24" fill="#7C3AED"/>
+        <text x="230" y="86" text-anchor="middle" fill="#7C3AED" font-size="11">AdamW 优化器状态 ~44MB（每参数 8 字节）</text>
+        <!-- 梯度 -->
+        <rect x="374" y="40" width="66" height="24" fill="#0EA5E9"/>
+        <text x="407" y="86" text-anchor="middle" fill="#0EA5E9" font-size="11">梯度 ~11MB</text>
+        <!-- 激活 -->
+        <rect x="452" y="40" width="100" height="24" fill="#F59E0B"/>
+        <text x="502" y="86" text-anchor="middle" fill="#B45309" font-size="11">激活值 几百MB</text>
+        <!-- 8G 线 -->
+        <line x1="20" y1="130" x2="548" y2="130" stroke="#E4E3DD" stroke-width="1.5"/>
+        <text x="20" y="148" fill="#6B7280" font-size="11">8G 显存线：整体总量远小于 8G，无需梯度检查点，可全量训练</text>
+      </svg>
+      <div class="cap">图 5-1　显存构成估算（示意，比例不精确）：权重 ~11MB + 优化器 ~44MB + 梯度 ~11MB + 激活值（随 batch/seq_len 变化）数百 MB</div>
+    </div>
+    <ul class="list">
+      <li>权重显存 = 参数 × 精度（BF16 = 2 字节/参数）→ 5.5M × 2 ≈ 11MB。</li>
+      <li>AdamW 优化器状态：每参数 8 字节（内部保存 FP32 的动量+方差两份）→ 5.5M × 8 ≈ 44MB。</li>
+      <li>梯度：与权重精度相同 → ≈11MB。</li>
+      <li>激活值：与 batch、seq_len 强相关；本实验 seq_len=512、batch=2，约几百 MB。显存不够时开 <strong>Gradient Checkpointing</strong>（省激活显存、代价是变慢）。</li>
+      <li>一旦模型到 B 级别，优化器状态直接 GB 起跳 —— 这正是大模型全量训练吃显存的核心原因之一。</li>
+    </ul>
+
+    <h3>5.5 训练时长估算</h3>
+    <div class="formula">FLOPs<sub>step</sub> ≈ 6 × N × batch_size × seq_len × hidden_size²</div>
+    <ul class="list">
+      <li>每步 FLOPs 乘 6（一次前向 ≈ 2 倍反向，反向约 2×前向，合计约 6×）。</li>
+      <li>单步时间 = FLOPs<sub>step</sub> ÷（实际算力 TFLOPS × 10¹²）；GPU 实际利用率一般只有 20%~40%。</li>
+      <li>总步数 = 总训练 token ÷（batch_size × seq_len）；总时间 = 总步数 × 单步时间。</li>
+    </ul>
+    <div class="callout"><b>本项目量级（估算）：</b>总训练 token ≈3840、batch×seq=2×512=1024，总步数仅约几十步量级，训练时间预计<strong>分钟级以内</strong>。对比工业界：万亿 token、上万 GPU 训练数月。</div>
+
+    <h3>5.6 预期观察现象（实验记录要点）</h3>
+    <ul class="list">
+      <li>train_loss 稳步持续下降。</li>
+      <li>eval_loss 前几个 epoch 下降，到达最低点后<strong>开始上升 → 过拟合</strong>。</li>
+      <li><strong>eval_loss 最低点对应的 checkpoint = 模型泛化能力最好的权重</strong>；之后模型在死记 400 句训练文本。</li>
+      <li>推理测试：训练前随机初始化输出乱码；训练后倾向复现训练文本里的数学等式、单词翻译；未见过的句子依旧很差（完全正常）。</li>
+    </ul>
+  </section>
+
+  <!-- 6 预训练完整流程 -->
+  <section>
+    <h2><span class="no">6</span>预训练完整流程（分步）</h2>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><div class="body"><div class="t">定义预训练任务与玩具数据集</div><p>任务：因果自回归 next-token 预测。数据：纯文本 jsonl（<code>{"text":"…"}</code>），无对话标记。样例：「一加一等于二。二加二等于四。苹果 apple。香蕉 banana。」多复制凑几十~数百条。</p></div></div>
+      <div class="step"><div class="n">2</div><div class="body"><div class="t">Tokenizer（预训练里极其关键）</div><p>完整工业流程是先<strong>自己训练 tokenizer</strong> 再训模型；个人实验复用现成 tokenizer（记录：真实工业这里是一步独立训练）。工作流：字符串 → 子词 token → 整数 id；截断到 max_seq_len；Packing 拼接。<strong>tokenizer 和模型强绑定：vocab_size 变了，LM-Head / Embedding 维度必须同步改。</strong></p></div></div>
+      <div class="step"><div class="n">3</div><div class="body"><div class="t">模型初始化（真正从零预训练的起点）</div><p>只定义结构配置，<strong>不加载任何预训练权重，全部随机初始化</strong>。例如 <code>Qwen2Config(hidden_size=256, num_hidden_layers=3, …)</code> + <code>Qwen2ForCausalLM(config)</code>。⚠️ 这里是随机初始化骨架，<u>不是下载 Qwen-0.5B-Base 权重</u>，这才是「从零预训练」。</p></div></div>
+      <div class="step"><div class="n">4</div><div class="body"><div class="t">数据集预处理流水线</div><p>对每条 text：tokenizer 编码 → 截断到 max_seq_length →（预训练一般用 packing，不 padding）→ 生成 labels（<strong>直接复制 input_ids，不做任何 mask</strong>）→ 拆 train / validation。</p></div></div>
+      <div class="step"><div class="n">5</div><div class="body"><div class="t">训练循环（预训练 loss 计算）</div><p>核心：<code>labels=input_ids</code>，模型自动移位（用 input_ids[:, :-1] 预测 labels[:, 1:]）。<strong>预训练不 mask 任何 token 的 loss，全部位置都算</strong> —— 这是和 SFT 最大区别之一。手写循环即 forward → loss → backward → optimizer.step()。</p></div></div>
+      <div class="step"><div class="n">6</div><div class="body"><div class="t">训练参数</div><p>AdamW；lr 比微调大（3e-4 ~ 1e-3 玩具级）；<strong>cosine + warmup（预训练必须 warmup）</strong>；梯度裁剪。观察 train_loss / eval_loss。</p></div></div>
+      <div class="step"><div class="n">7</div><div class="body"><div class="t">保存模型权重</div><p>定时保存 checkpoint，保存<strong>完整模型 state_dict</strong>（不是 LoRA）：<code>model.save_pretrained("./my_pretrained_model")</code> + tokenizer 一并保存。</p></div></div>
+      <div class="step"><div class="n">8</div><div class="body"><div class="t">预训练后推理验证</div><p>随机初始化未训练前：输出乱码；训练后：倾向输出训练文本里的模式。示例：<code>prompt="一加一等于"</code> → <code>model.generate(...)</code> → decode 观察续写。</p></div></div>
+    </div>
+
+    <h3>关键代码要点（讨论中出现）</h3>
+    <pre><code><span class="cm"># 1) 随机初始化，不加载任何权重 —— 从零预训练的起点</span>
+<span class="fn">config</span> = <span class="fn">Qwen2Config</span>(
+    vocab_size=<span class="st">16384</span>, hidden_size=<span class="st">256</span>,
+    num_hidden_layers=<span class="st">3</span>, num_attention_heads=<span class="st">4</span>,
+    intermediate_size=<span class="st">682</span>, max_position_embeddings=<span class="st">512</span>
+)
+<span class="fn">model</span> = <span class="fn">Qwen2ForCausalLM</span>(config)   <span class="cm"># 权重全部随机</span>
+
+<span class="cm"># 2) 预训练训练循环核心 —— labels = input_ids，全部位置算 loss</span>
+<span class="kw">for</span> batch <span class="kw">in</span> train_dataloader:
+    out = <span class="fn">model</span>(input_ids=batch[<span class="st">"input_ids"</span>],
+                 attention_mask=batch[<span class="st">"attention_mask"</span>],
+                 labels=batch[<span class="st">"input_ids"</span>])   <span class="cm"># 模型内部自动移位</span>
+    loss = out.loss
+    loss.backward(); optimizer.step(); optimizer.zero_grad()</code></pre>
+  </section>
+
+  <!-- 7 评估 -->
+  <section>
+    <h2><span class="no">7</span>评估策略</h2>
+    <div class="callout good"><b>预训练不看「聊天效果」，主指标就是 loss。</b>对话评测属于 SFT 之后的事。</div>
+    <table>
+      <tr><th>阶段</th><th>指标</th><th>解读</th></tr>
+      <tr><td>训练过程</td><td>train_loss</td><td>持续下降 = 模型在拟合文本分布</td></tr>
+      <tr class="pick"><td>训练过程（最重要）</td><td>eval_loss</td><td>下降 = 泛化变好；开始上升 = 过拟合（玩具小数据集几乎必然）</td></tr>
+      <tr><td>训练过程</td><td>学习率曲线 / 梯度范数</td><td>监控 warmup 与梯度爆炸</td></tr>
+      <tr><td>训练结束（定性）</td><td>采样生成续写</td><td>未训练乱码；训练后应复现训练文本模式</td></tr>
+    </table>
+    <p>预训练阶段<strong>不做人类打分、不做对话评测</strong>；没有准确率，只有交叉熵 loss —— loss 越低代表下一个 token 预测越准。</p>
+  </section>
+
+  <!-- 8 故障 -->
+  <section>
+    <h2><span class="no">8</span>常见故障与排查</h2>
+    <table>
+      <tr><th>现象</th><th>可能原因</th><th>排查方向</th></tr>
+      <tr><td>loss 不下降</td><td>学习率不对、数据坏、初始化错误、mask 错误</td><td>先检查数据与 mask；调 lr</td></tr>
+      <tr><td>loss 震荡不收敛</td><td>缺少 warmup、学习率太大</td><td>加 warmup、调低 lr</td></tr>
+      <tr><td>train 降很低、eval 飙升</td><td>严重过拟合（数据集太小）</td><td>预期现象；记录 eval 最低点</td></tr>
+      <tr><td>loss = NaN</td><td>梯度爆炸、精度溢出</td><td>梯度裁剪（1.0）、降低 lr</td></tr>
+      <tr><td>OOM 爆显存</td><td>模型/激活值超过显存</td><td>开 Gradient Checkpointing、减小 batch/seq_len</td></tr>
+    </table>
+  </section>
+
+  <!-- 9 学习路线图 -->
+  <section>
+    <h2><span class="no">9</span>学习路线图（后续安排）</h2>
+    <div class="fig">
+      <svg viewBox="0 0 880 130" xmlns="http://www.w3.org/2000/svg" font-family="'PingFang SC','Microsoft YaHei',sans-serif">
+        <g font-size="12" text-anchor="middle">
+          <g>
+            <rect x="2" y="20" width="150" height="62" rx="10" fill="#2563EB"/>
+            <text x="77" y="45" fill="#fff" font-weight="700">① Dense 完整链路</text>
+            <text x="77" y="64" fill="#DBEAFE" font-size="10.5">从零预训练跑通（当前）</text>
+          </g>
+          <g>
+            <rect x="190" y="20" width="150" height="62" rx="10" fill="#3B82F6"/>
+            <text x="265" y="45" fill="#fff" font-weight="700">② 切 GQA</text>
+            <text x="265" y="64" fill="#DBEAFE" font-size="10.5">贴近 Llama3/Qwen 真实配置</text>
+          </g>
+          <g>
+            <rect x="378" y="20" width="150" height="62" rx="10" fill="#7C3AED"/>
+            <text x="453" y="45" fill="#fff" font-weight="700">③ MoE 原理+对照</text>
+            <text x="453" y="64" fill="#EDE9FE" font-size="10.5">只替换 FFN，看路由/专家坍缩</text>
+          </g>
+          <g>
+            <rect x="566" y="20" width="150" height="62" rx="10" fill="#DB2777"/>
+            <text x="641" y="45" fill="#fff" font-weight="700">④ SFT 指令微调</text>
+            <text x="641" y="64" fill="#FCE7F3" font-size="10.5">对话数据，mask user</text>
+          </g>
+          <g>
+            <rect x="754" y="20" width="124" height="62" rx="10" fill="#B45309"/>
+            <text x="816" y="45" fill="#fff" font-weight="700">⑤ DPO/RLHF</text>
+            <text x="816" y="64" fill="#FBF0DC" font-size="10.5">偏好对齐</text>
+          </g>
+        </g>
+        <g stroke="#94A3B8" stroke-width="1.6" marker-end="url(#ar)">
+          <line x1="152" y1="51" x2="189" y2="51"/>
+          <line x1="340" y1="51" x2="377" y2="51"/>
+          <line x1="528" y1="51" x2="565" y2="51"/>
+          <line x1="716" y1="51" x2="753" y2="51"/>
+        </g>
+        <text x="2" y="112" fill="#5B6470" font-size="11.5">路线原则：先把 Dense 整套从零预训练完整跑通（吃透 tokenizer / 架构 / 显存 / loss / 过拟合），再逐步拓展到 GQA → MoE → SFT → DPO，每个环节都可平移到 7B 级生产底座。</text>
+      </svg>
+      <div class="cap">图 9-1　学习路线图：Dense → GQA → MoE 对照 → SFT → DPO</div>
+    </div>
+  </section>
+
+  <!-- 10 问答摘录 -->
+  <section>
+    <h2><span class="no">10</span>讨论问答摘录</h2>
+    <div class="card">
+      <p><span class="label info">问答 1</span><b>Decoder-Only 为什么叫自回归？</b></p>
+      <p style="font-size:13.5px">「回归」= 用已知变量预测另一变量；「自回归」= 用序列<strong>自己过去的输出</strong>预测下一步。推理时上一步生成的 token 会拼回输入成为下一步输入 —— 输入来源于模型自身过去的输出，故叫「自」回归。</p>
+    </div>
+    <div class="card">
+      <p><span class="label info">问答 2</span><b>P(x<sub>t</sub> | x<sub>1</sub>,…,x<sub>t-1</sub>) 代表什么？</b></p>
+      <p style="font-size:13.5px">条件概率：已知前面已有 x<sub>1</sub>…x<sub>t-1</sub>，求下一个是 x<sub>t</sub> 的概率。例：「苹果好吃」，P(x<sub>3</sub>|x<sub>1</sub>,x<sub>2</sub>) = 已知「苹、果」，下一个字是「好」的概率。</p>
+    </div>
+    <div class="card">
+      <p><span class="label info">问答 3</span><b>交叉熵为什么比准确率更适合做 loss？</b></p>
+      <p style="font-size:13.5px">准确率只看是否完全命中（错一点不计较错多少）；交叉熵会惩罚「给正确词信心不够」，即使答案没完全错也有梯度，信息更丰富。例：都预测错时，模型 A 给「二」0.4 比模型 B 给「二」0.1 的 loss 更小，能引导优化方向。</p>
+    </div>
+    <div class="card">
+      <p><span class="label info">问答 4</span><b>数据集 6000 句时为什么选 384，改到 400 句为什么降到 256？</b></p>
+      <p style="font-size:13.5px">模型容量必须匹配数据量：Chinchilla 最优配比约 1 参数 : 20 token。6000 句/9 万 token 用 13M/384；400 句/4800 token 容量必须压小到 5.5M/256，否则直接背样本、瞬间过拟合。hidden_size 太小则欠拟合。</p>
+    </div>
+    <div class="card">
+      <p><span class="label info">问答 5</span><b>为什么 400 句数据只用 3 层、不用 8 层？</b></p>
+      <p style="font-size:13.5px">层数太深在数据极少时容易<strong>训练震荡</strong>（loss 上蹿下跳不收敛）且更快过拟合。小数据预训练经验：优先加宽 hidden_size，不要盲目堆层数；3 层足够演示完整 Transformer 机制。</p>
+    </div>
+    <div class="card">
+      <p><span class="label info">问答 6</span><b>MoE 改动的是 Transformer 的哪个组件？注意力层改不改？</b></p>
+      <p style="font-size:13.5px">MoE <strong>只替换 FFN 前馈网络部分</strong>，注意力层完全不变。Dense 和 MoE 的注意力、RMSNorm、RoPE、因果掩码、Decoder 堆叠全部一模一样。MoE 不是整个换掉 Transformer，只是 FFN 的一个变种。</p>
+    </div>
+    <div class="card">
+      <p><span class="label info">问答 7</span><b>原始 Transformer 里的 cross-attention，Decoder-Only 里还有吗？</b></p>
+      <p style="font-size:13.5px">没有了。Decoder-Only 把 encoder 和 cross-attention 都删掉，只保留 Decoder 块堆叠 —— 这就是现在 90% 通用大模型的底座。</p>
+    </div>
+    <div class="card">
+      <p><span class="label info">问答 8</span><b>num_hidden_layers=1、num_attention_heads=16，核心短板是什么？</b></p>
+      <p style="font-size:13.5px">头再多也只能在<strong>原始文字层面</strong>找关系，无法迭代升级到短语、句子级语义。多头负责多角度观察、多层负责迭代加深，两者互补不可替代。</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>本文档由「大模型训练流程学习」会话讨论结果固化整理。所有配置、参数、结论均来自该会话的逐步确认；显存/时长为估算口径，已在文中标注。适用硬件：本地 4060-8G / 4070-8G。</p>
+    <p style="margin-top:6px">下一步行动项：① 编写「随机初始化小模型 + 玩具数据集」从零预训练完整脚本；② 填表敲定实验方案数字；③ 跑通后依次推进 GQA → MoE 对照 → SFT → DPO。</p>
+  </footer>
+
+</div>
+</body>
+</html>
