@@ -1,0 +1,13 @@
+[1/7] 数据集加载完成：36996 条样本 <- data/math_v4.jsonl
+[2/7] Tokenizer 加载完成：vocab_size = 151646（eos=151643）
+[3/7] 模型随机初始化完成：总参数量 = 65.32M，设备 = cuda，精度 = BF16
+    学习率 = 0.0003
+[4/7] 独立样本模式（长度分桶）：train 29597 / val 7399 条，batch=16
+[4/7] 独立样本模式：train 29597 条 / val 7399 条（batch 内 pad，样本内转移全部完整，无切块破坏）
+[5/7] 优化器 AdamW(lr=0.0003)，总步数 ≈ 5550，warmup 277 步，cosine 退火
+[6/7] 开始训练 ...
+  epoch 01/3 | train_loss 1.0976 | eval_loss 0.2295 | lr 2.39e-04 | 已用 433s
+  epoch 02/3 | train_loss 0.2133 | eval_loss 0.2138 | lr 8.23e-05 | 已用 864s
+  epoch 03/3 | train_loss 0.2076 | eval_loss 0.2120 | lr 0.00e+00 | 已用 1296s
+[7/7] 训练结束，总耗时 1296s
+最终模型已保存到 output_v4a/final_model/（完整权重 + config + tokenizer）

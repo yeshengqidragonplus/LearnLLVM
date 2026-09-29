@@ -1,0 +1,13 @@
+d:\Doc\Leran LLVM\pretrain_lab\04e_eval_v5.py:14: SyntaxWarning: invalid escape sequence '\.'
+  .\.venv\Scripts\python 04e_eval_v5.py --model output_v5c1/final_model --nave --n
+Loading weights:   0%|          | 0/50 [00:00<?, ?it/s]Loading weights: 100%|██████████| 50/50 [00:00<00:00, 20335.03it/s]
+[transformers] [1mQwen2ForCausalLM LOAD REPORT[0m from: output_v5c1/final_model
+Key                    | Status     |  | 
+-----------------------+------------+--+-
+nave.digit_emb.weight  | UNEXPECTED |  | 
+nave.theta             | UNEXPECTED |  | 
+nave.proj.weight       | UNEXPECTED |  | 
+nave.place_proj.weight | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.

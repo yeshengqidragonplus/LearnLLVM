@@ -130,6 +130,8 @@
         <li>常见故障与排查</li>
         <li>学习路线图（后续安排）</li>
         <li>讨论问答摘录</li>
+        <li>实测结果记录（2026-09-07 首次跑通）</li>
+        <li>数学组合实验：让模型学会"一加一等于二"（v1→v6）</li>
       </ol>
     </div>
   </section>
@@ -139,8 +141,8 @@
     <h2><span class="no">1</span>实验定位与目标</h2>
     <p class="lead">目标不是产出可用的产品模型，而是<strong>完整跑通一条大模型训练链路</strong>：看懂每个环节做什么、输入输出是什么、痛点在哪里。</p>
     <div class="grid">
-      <div class="kv"><div class="k">模型规模</div><div class="v">~5.5M 参数</div></div>
-      <div class="kv"><div class="k">数据集</div><div class="v">400 句 / ≈4800 token</div></div>
+      <div class="kv"><div class="k">模型规模</div><div class="v">~41M 参数</div></div>
+      <div class="kv"><div class="k">数据集</div><div class="v">400 句 / ≈4100 token</div></div>
       <div class="kv"><div class="k">训练方式</div><div class="v">全量训练</div></div>
       <div class="kv"><div class="k">显存需求</div><div class="v">&lt;&lt; 8G</div></div>
     </div>
@@ -294,7 +296,7 @@
     </table>
 
     <h4>为什么不用量化做预训练</h4>
-    <div class="callout"><b>关键点：</b>4-bit/8-bit 量化<strong>不能用于全量预训练</strong>，只能用于推理或 LoRA 微调省显存。预训练主流是 BF16。本实验 5.5M 参数全量 BF16 显存远小于 8G，根本不需要量化，也不需要 LoRA。</div>
+    <div class="callout"><b>关键点：</b>4-bit/8-bit 量化<strong>不能用于全量预训练</strong>，只能用于推理或 LoRA 微调省显存。预训练主流是 BF16。本实验 41M 参数全量 BF16 显存远小于 8G，根本不需要量化，也不需要 LoRA。</div>
   </section>
 
   <!-- 4 核心概念 -->
@@ -338,7 +340,7 @@
     <ul class="list">
       <li>hidden_size 越大 → 表达能力越强，但参数量近乎平方上涨、显存变大；小数据集下容量过剩 → 直接过拟合、死记样本。</li>
       <li>hidden_size 太小 → 装不下足够特征 → 欠拟合，loss 降不下去。</li>
-      <li><strong>为什么 256：</strong>本实验 400 句/≈4800 token，数据极小。128 太小（中英混合装不下）、512 偏大（更快过拟合）。256 平衡表达能力，且 <code>256 ÷ 4 头 = 64</code>，正好是行业经典的 head_dim=64。</li>
+      <li><strong>为什么 256：</strong>本实验 400 句/≈4100 token，数据极小。128 太小（中英混合装不下）、512 偏大（更快过拟合）。256 平衡表达能力，且 <code>256 ÷ 4 头 = 64</code>，正好是行业经典的 head_dim=64。</li>
     </ul>
     <div class="callout warn"><b>硬约束：</b>head_dim 尽量保持 64；hidden_size 必须能被注意力头数整除，否则代码直接报错。</div>
 
@@ -456,13 +458,13 @@
     <p><strong>第一步：把数据规模统一换算成 token 数</strong>（不要用「句数/字数」——模型算力与显存都按 token 计）。</p>
     <div class="formula">总 token ≈ 样本条数 × 平均每样本 token 数</div>
     <ul class="list">
-      <li>粗估：先用 tokenizer 编码几条样本看平均长度，再乘总条数。例：400 句（200 中 + 200 英）× 平均 12 token/句 ≈ <strong>4800 token</strong>。</li>
-      <li>精确：预处理时用 <code>len(tokenizer.encode(text))</code> 逐条统计，得到真实总数。</li>
+      <li>粗估：先用 tokenizer 编码几条样本看平均长度，再乘总条数。例：400 句（200 中 + 200 英）× 平均 10.2 token/句 ≈ <strong>4100 token</strong>。</li>
+      <li>精确：预处理时用 <code>len(tokenizer.encode(text))</code> 逐条统计，得到真实总数（实测 4097 token）。</li>
     </ul>
     <p><strong>第二步：用 Chinchilla 定律判断「数据够不够」。</strong>工业最优配比约 <strong>1 个参数配 20 个训练 token</strong>（适合大数据集）。</p>
     <ul class="list">
-      <li>我们 4800 token 的「最优参数」≈ 4800 ÷ 20 = 240 个参数 —— 现实中不存在，说明数据量远低于工业最优。</li>
-      <li><strong>核心判断：数据规模决定模型能做多大，而不是反过来。</strong>数据不足时模型容量必须压小（宁 5.5M，不可 100M），否则直接背样本、瞬间过拟合。</li>
+      <li>我们 4100 token 的「最优参数」≈ 4100 ÷ 20 = 205 个参数 —— 现实中不存在，说明数据量远低于工业最优。</li>
+      <li><strong>核心判断：数据规模决定模型能做多大，而不是反过来。</strong>数据不足时模型容量必须压小（宁 41M——其中 Embedding 占大头、Transformer 主体仅 1.8M——也不可 100M），否则直接背样本、瞬间过拟合。</li>
     </ul>
 
     <h3>5.3 参数规模如何评估</h3>
@@ -473,7 +475,7 @@
     <p><strong>粗略核验公式（估算口径，非精确）：</strong></p>
     <div class="formula">参数量 ≈ 9.3 × 层数 × hidden_size² ＋ vocab_size × hidden_size（Embedding/LM-Head 共享只算一份）</div>
     <ul class="list">
-      <li>代入本实验：9.3 × 3 × 256² ≈ 1.83M；＋ 16384 × 256 ≈ 4.19M → 合计 ≈ 6.0M，与讨论确认的 <strong>~5.5M</strong> 同量级 ✅。</li>
+      <li>代入本实验：9.3 × 3 × 256² ≈ 1.83M；＋ 151646 × 256 ≈ 38.8M → 合计 ≈ 40.7M，与实测 <strong>41.18M</strong> 吻合 ✅。Embedding / LM-Head（共享一份）占了大头——这是<strong>复用现成大词表（Qwen2，15 万词）</strong>的必然代价；Transformer 主体仍只有 ≈1.8M。</li>
       <li>用途：改完配置立刻估算参数涨跌，不用等代码跑完。</li>
     </ul>
 
@@ -488,7 +490,7 @@
             <rect x="6" y="22" width="160" height="104" rx="10" fill="#EAF1FE" stroke="#2563EB"/>
             <text x="86" y="46" fill="#1D4ED8" font-weight="700">① 估算数据 token</text>
             <text x="86" y="66" fill="#5B6470" font-size="10.5">句数 × 平均 token/句</text>
-            <text x="86" y="82" fill="#5B6470" font-size="10.5">例：400 × 12 ≈ 4800</text>
+            <text x="86" y="82" fill="#5B6470" font-size="10.5">例：400 × 10.2 ≈ 4100</text>
             <text x="86" y="108" fill="#2563EB" font-size="10.5" font-weight="600">定「数据规模」</text>
           </g>
           <g>
@@ -496,7 +498,7 @@
             <text x="268" y="46" fill="#1D4ED8" font-weight="700">② 定参数量级</text>
             <text x="268" y="66" fill="#5B6470" font-size="10.5">Chinchilla 1:20 + 容量匹配</text>
             <text x="268" y="82" fill="#5B6470" font-size="10.5">数据小 → 模型必须小</text>
-            <text x="268" y="108" fill="#2563EB" font-size="10.5" font-weight="600">目标 ~5.5M</text>
+            <text x="268" y="108" fill="#2563EB" font-size="10.5" font-weight="600">目标 ~41M（主体 1.8M）</text>
           </g>
           <g>
             <rect x="370" y="22" width="160" height="104" rx="10" fill="#EAF1FE" stroke="#2563EB"/>
@@ -532,7 +534,7 @@
     </div>
     <table>
       <tr><th>数据规模（总 token）</th><th>推荐参数量级</th><th>示例配置（讨论中确认）</th></tr>
-      <tr><td>≈4800（400 句）</td><td>~5.5M</td><td>hidden 256 / 3 层 / 4 头 / head_dim 64</td></tr>
+      <tr><td>≈4100（400 句）</td><td>~41M（Embedding 占大头，主体 ~1.8M）</td><td>hidden 256 / 3 层 / 4 头 / head_dim 64，复用 Qwen2 词表</td></tr>
       <tr><td>≈9 万（6000 句）</td><td>~13M</td><td>hidden 384 / 4 层 / 6 头 / head_dim 64</td></tr>
       <tr><td>200~300 万</td><td>25~30M</td><td>hidden 512 / 8 层（升级路径）</td></tr>
       <tr><td>亿级</td><td>百 M 级</td><td>继续扩 hidden_size / 层数</td></tr>
@@ -543,15 +545,15 @@
   <!-- 6 实验方案定稿 -->
   <section>
     <h2><span class="no">6</span>实验方案定稿（主实验）</h2>
-    <div class="callout good"><b>方案一句话：</b>200 句中文 + 200 句英文短句（≈4800 token），从零随机初始化一个 Dense Decoder-Only Transformer（约 5.5M 参数），全量 BF16 预训练，跑通完整链路并观察 loss / 过拟合现象。</div>
+    <div class="callout good"><b>方案一句话：</b>200 句中文 + 200 句英文短句（≈4100 token），从零随机初始化一个 Dense Decoder-Only Transformer（约 41M 参数：Embedding / LM-Head 共享占 ~38.8M，Transformer 主体约 1.8M），全量 BF16 预训练，跑通完整链路并观察 loss / 过拟合现象。</div>
 
     <h3>6.1 数据集规划</h3>
     <table>
       <tr><th>项</th><th>取值</th><th>说明</th></tr>
       <tr><td>原始数据</td><td>200 中文短句 + 200 英文短句</td><td>纯文本，无 user/assistant；预训练格式只有 <code>text</code> 字段（如「一加一等于二。苹果 apple。」）</td></tr>
-      <tr><td>总 token 估算</td><td>≈4800 token</td><td>400 句 × 平均 12 token/句</td></tr>
+      <tr><td>总 token 估算</td><td>≈4100 token</td><td>400 句 × 平均 10.2 token/句（实测 4097）</td></tr>
       <tr><td>划分</td><td>train 80% = 320 句；val 20% = 80 句</td><td><strong>必须留验证集</strong>，观察过拟合</td></tr>
-      <tr><td>train / val token</td><td>≈3840 / ≈960</td><td>按比例换算</td></tr>
+      <tr><td>train / val token</td><td>≈3280 / ≈820</td><td>按比例换算</td></tr>
       <tr><td>预处理</td><td>Packing 样本打包</td><td>多条短样本拼接、中间插 <code>&lt;eos&gt;</code> 分隔，填满序列，减少 padding，提升效率</td></tr>
       <tr><td>文件格式</td><td>jsonl</td><td>一行一条样本的行业标准存储</td></tr>
     </table>
@@ -571,11 +573,11 @@
       <tr class="pick"><td>activation</td><td>silu（SwiGLU）</td><td>现代模型标准激活</td></tr>
       <tr class="pick"><td>position_encoding</td><td>RoPE</td><td>旋转位置编码</td></tr>
       <tr class="pick"><td>norm</td><td>RMSNorm（Pre-LN）</td><td>深层训练更稳</td></tr>
-      <tr class="pick"><td>vocab_size</td><td>16384</td><td>中英混合；若复用 tokenizer 则跟随其 vocab_size</td></tr>
+      <tr class="pick"><td>vocab_size</td><td>151646</td><td><strong>复用现成 Qwen2 tokenizer</strong>（定稿决策，不自己训）；含特殊 token，保证 eos=151643 不越界</td></tr>
       <tr class="pick"><td>tie_embeddings</td><td>True</td><td>Embedding 与 LM-Head 权重共享，降参数量</td></tr>
-      <tr><td><strong>预估总参数量</strong></td><td><strong>≈5.5M</strong></td><td>百万级，非 B 级，适合流程实验</td></tr>
+      <tr><td><strong>预估总参数量</strong></td><td><strong>≈41.18M</strong></td><td>Embedding / LM-Head 共享 ~38.8M（词表大所致），Transformer 主体 ~1.8M；实测吻合</td></tr>
     </table>
-    <div class="callout"><b>备选对照方案（可选，做对比用）：</b>hidden_size=192，layers=2，heads=3（192÷3=64），总参数约 2.2M —— 容量更低、更容易欠拟合，用来对比看「模型能力不够」是什么样子。</div>
+    <div class="callout"><b>备选对照方案（可选，做对比用）：</b>hidden_size=192，layers=2，heads=3（192÷3=64），总参数约 2.0M（Embedding 大头不变）—— 容量更低、更容易欠拟合，用来对比看「模型能力不够」是什么样子。</div>
 
     <h3>6.3 训练超参</h3>
     <table>
@@ -594,29 +596,29 @@
     <p>预训练显存 = <strong>模型权重 + 优化器状态 + 梯度 + 激活值</strong>。全量训练时优化器状态是大头。</p>
     <div class="fig">
       <svg viewBox="0 0 560 190" xmlns="http://www.w3.org/2000/svg" font-family="'PingFang SC','Microsoft YaHei',sans-serif">
-        <text x="20" y="22" fill="#111827" font-size="12.5" font-weight="600">显存构成（5.5M 参数 × BF16，估算）</text>
+        <text x="20" y="22" fill="#111827" font-size="12.5" font-weight="600">显存构成（41.18M 参数 × BF16，估算）</text>
         <!-- 权重 -->
-        <rect x="20" y="40" width="66" height="24" fill="#2563EB"/>
-        <text x="53" y="86" text-anchor="middle" fill="#2563EB" font-size="11">权重 ~11MB</text>
+        <rect x="20" y="40" width="90" height="24" fill="#2563EB"/>
+        <text x="65" y="86" text-anchor="middle" fill="#2563EB" font-size="11">权重 ~82MB</text>
         <!-- 优化器 -->
-        <rect x="98" y="40" width="264" height="24" fill="#7C3AED"/>
-        <text x="230" y="86" text-anchor="middle" fill="#7C3AED" font-size="11">AdamW 优化器状态 ~44MB（每参数 8 字节）</text>
+        <rect x="122" y="40" width="240" height="24" fill="#7C3AED"/>
+        <text x="242" y="86" text-anchor="middle" fill="#7C3AED" font-size="11">AdamW 优化器状态 ~330MB（每参数 8 字节）</text>
         <!-- 梯度 -->
         <rect x="374" y="40" width="66" height="24" fill="#0EA5E9"/>
-        <text x="407" y="86" text-anchor="middle" fill="#0EA5E9" font-size="11">梯度 ~11MB</text>
+        <text x="407" y="86" text-anchor="middle" fill="#0EA5E9" font-size="11">梯度 ~82MB</text>
         <!-- 激活 -->
         <rect x="452" y="40" width="100" height="24" fill="#F59E0B"/>
-        <text x="502" y="86" text-anchor="middle" fill="#B45309" font-size="11">激活值 几百MB</text>
+        <text x="502" y="86" text-anchor="middle" fill="#B45309" font-size="11">激活值 数百MB</text>
         <!-- 8G 线 -->
         <line x1="20" y1="130" x2="548" y2="130" stroke="#E4E3DD" stroke-width="1.5"/>
-        <text x="20" y="148" fill="#6B7280" font-size="11">8G 显存线：整体总量远小于 8G，无需梯度检查点，可全量训练</text>
+        <text x="20" y="148" fill="#6B7280" font-size="11">8G 显存线：整体总量 ≈0.9GB，远小于 8G，无需梯度检查点，可全量训练</text>
       </svg>
-      <div class="cap">图 6-1　显存构成估算（示意，比例不精确）：权重 ~11MB + 优化器 ~44MB + 梯度 ~11MB + 激活值（随 batch/seq_len 变化）数百 MB</div>
+      <div class="cap">图 6-1　显存构成估算（示意，比例不精确）：权重 ~82MB + 优化器 ~330MB + 梯度 ~82MB + 激活值（随 batch/seq_len 变化）数百 MB，合计约 0.9GB</div>
     </div>
     <ul class="list">
-      <li>权重显存 = 参数 × 精度（BF16 = 2 字节/参数）→ 5.5M × 2 ≈ 11MB。</li>
-      <li>AdamW 优化器状态：每参数 8 字节（内部保存 FP32 的动量+方差两份）→ 5.5M × 8 ≈ 44MB。</li>
-      <li>梯度：与权重精度相同 → ≈11MB。</li>
+      <li>权重显存 = 参数 × 精度（BF16 = 2 字节/参数）→ 41.18M × 2 ≈ 82MB。</li>
+      <li>AdamW 优化器状态：每参数 8 字节（内部保存 FP32 的动量+方差两份）→ 41.18M × 8 ≈ 330MB。</li>
+      <li>梯度：与权重精度相同 → ≈82MB。</li>
       <li>激活值：与 batch、seq_len 强相关；本实验 seq_len=512、batch=2，约几百 MB。显存不够时开 <strong>Gradient Checkpointing</strong>（省激活显存、代价是变慢）。</li>
       <li>一旦模型到 B 级别，优化器状态直接 GB 起跳 —— 这正是大模型全量训练吃显存的核心原因之一。</li>
     </ul>
@@ -628,7 +630,7 @@
       <li>单步时间 = FLOPs<sub>step</sub> ÷（实际算力 TFLOPS × 10¹²）；GPU 实际利用率一般只有 20%~40%。</li>
       <li>总步数 = 总训练 token ÷（batch_size × seq_len）；总时间 = 总步数 × 单步时间。</li>
     </ul>
-    <div class="callout"><b>本项目量级（估算）：</b>总训练 token ≈3840、batch×seq=2×512=1024，总步数仅约几十步量级，训练时间预计<strong>分钟级以内</strong>。对比工业界：万亿 token、上万 GPU 训练数月。</div>
+    <div class="callout"><b>本项目量级（估算）：</b>总训练 token ≈3280、batch×seq=2×512=1024，总步数仅约几十步量级，训练时间预计<strong>秒级到分钟级</strong>（实测：30 epoch 仅 8 秒）。对比工业界：万亿 token、上万 GPU 训练数月。</div>
 
     <h3>6.6 预期观察现象（实验记录要点）</h3>
     <ul class="list">
@@ -656,7 +658,7 @@
     <h3>关键代码要点（讨论中出现）</h3>
     <pre><code><span class="cm"># 1) 随机初始化，不加载任何权重 —— 从零预训练的起点</span>
 <span class="fn">config</span> = <span class="fn">Qwen2Config</span>(
-    vocab_size=<span class="st">16384</span>, hidden_size=<span class="st">256</span>,
+    vocab_size=<span class="st">151646</span>, hidden_size=<span class="st">256</span>,   <span class="cm"># vocab 跟随现成 Qwen2 tokenizer</span>
     num_hidden_layers=<span class="st">3</span>, num_attention_heads=<span class="st">4</span>,
     intermediate_size=<span class="st">682</span>, max_position_embeddings=<span class="st">512</span>
 )
@@ -759,7 +761,7 @@
     </div>
     <div class="card">
       <p><span class="label info">问答 4</span><b>数据集 6000 句时为什么选 384，改到 400 句为什么降到 256？</b></p>
-      <p style="font-size:13.5px">模型容量必须匹配数据量：Chinchilla 最优配比约 1 参数 : 20 token。6000 句/9 万 token 用 13M/384；400 句/4800 token 容量必须压小到 5.5M/256，否则直接背样本、瞬间过拟合。hidden_size 太小则欠拟合。</p>
+      <p style="font-size:13.5px">模型容量必须匹配数据量：Chinchilla 最优配比约 1 参数 : 20 token。6000 句/9 万 token 用 13M/384；400 句/4100 token 容量必须压小——复用 Qwen2 大词表后整体参数到 41M，但其中 Embedding 占 38.8M，<strong>Transformer 主体只有 1.8M/256</strong>，模型真正常规推理与学习的容量仍是小模型量级，否则直接背样本、瞬间过拟合。hidden_size 太小则欠拟合。</p>
     </div>
     <div class="card">
       <p><span class="label info">问答 5</span><b>为什么 400 句数据只用 3 层、不用 8 层？</b></p>
@@ -779,9 +781,173 @@
     </div>
   </section>
 
+  <!-- 11 实测结果 -->
+  <section>
+    <h2><span class="no">12</span>实测结果记录（2026-09-07 首次跑通）</h2>
+    <div class="callout good"><b>结论先行：</b>完整链路（数据 → tokenizer → 从零预训练 → 推理验证）已在本机 RTX 4060 Laptop 跑通，30 epoch 全量预训练仅 <strong>8 秒</strong>，loss 曲线与预期现象完全吻合。</div>
+
+    <h3>12.1 运行环境与实测配置</h3>
+    <table>
+      <tr><th>项</th><th>实测值</th><th>说明</th></tr>
+      <tr><td>硬件</td><td>NVIDIA GeForce RTX 4060 Laptop（8188 MiB）</td><td>显存峰值约 0.9GB，余量极大</td></tr>
+      <tr><td>软件</td><td>Python 3.13.13 / torch 2.14.0+cu126 / transformers 4.x</td><td>venv 隔离在 <code>pretrain_lab/.venv</code></td></tr>
+      <tr><td>词表</td><td>vocab_size = 151646（复用 Qwen2-0.5B 现成 tokenizer）</td><td>含特殊 token，eos=151643</td></tr>
+      <tr><td>参数量</td><td>41.18M</td><td>Embedding / LM-Head 共享 ~38.8M + 3 层主体 ~1.8M</td></tr>
+      <tr><td>数据</td><td>400 条，共 4097 token，平均 10.2 token/条</td><td>packing 成 6 个训练块 + 1 个验证块</td></tr>
+      <tr><td>训练</td><td>30 epoch / batch 2 / BF16 / AdamW lr=3e-4 / warmup 5% / cosine / grad_clip 1.0</td><td>总步数 90，耗时 8 秒</td></tr>
+    </table>
+
+    <h3>12.2 训练结果（loss 曲线要点）</h3>
+    <table>
+      <tr><th>指标</th><th>起始（epoch 1）</th><th>最低点</th><th>结束（epoch 30）</th></tr>
+      <tr><td>train_loss</td><td>11.89</td><td>5.4551（epoch 30）</td><td>5.4551</td></tr>
+      <tr><td>eval_loss</td><td>11.41</td><td>5.6930（epoch 30）</td><td>5.6930</td></tr>
+    </table>
+    <ul class="list">
+      <li>train_loss 持续单调下降（11.89 → 5.46），模型在拟合文本分布 ✅。</li>
+      <li>eval_loss 前 13 个 epoch 快速下降（11.41 → 7.09），随后降速骤减；epoch 13 之后 train/eval 差距持续拉大，到 epoch 30 差距 0.24 —— <strong>过拟合启动特征如期出现</strong>（数据集仅 400 句，这是预期现象，不是 bug）。</li>
+      <li>严格意义上的「eval 回升」未出现，是因为数据量太小、训练步数太少，模型尚未把训练集完全背熟；把 epoch 加到 200+ 即可观察到更明显的 eval 拐点（可做课后实验）。</li>
+      <li>每 epoch checkpoint 已保存至 <code>output/checkpoints/epochXX</code>；最优泛化权重可取 eval_loss 最低的 epoch。</li>
+    </ul>
+
+    <h3>12.3 推理验证（训练前后对比）</h3>
+    <table>
+      <tr><th>prompt</th><th>训练前（随机初始化）</th><th>训练后</th></tr>
+      <tr><td>一加一等于</td><td>乱码（CAMCAM…）</td><td>一加一等于。</td></tr>
+      <tr><td>七加二等于</td><td>乱码（🧙🧙…）</td><td>七加二等于。</td></tr>
+      <tr><td>苹果</td><td>乱码（发生的发生的…）</td><td>苹果姊妹姊妹…（重复循环）</td></tr>
+      <tr><td>The sun</td><td>乱码（sun sun sun 康养…）</td><td>The sun。。。。…（重复循环）</td></tr>
+    </table>
+    <ul class="list">
+      <li>训练后能<strong>复现训练文本中的模式</strong>（数学等式补全「等于」+ 句号），证明权重确实学到了分布。</li>
+      <li>续写出现<strong>重复循环</strong>（如「姊妹姊妹…」）：400 句数据下模型的正常表现，非 bug；也说明靠记忆补全，未形成泛化能力。</li>
+      <li>未见过的新句子依然很差 —— 完全符合预期，这正是下一阶段加大数据量要解决的核心问题。</li>
+    </ul>
+
+    <h3>12.4 踩坑记录（对后续实验最有价值）</h3>
+    <table>
+      <tr><th>坑</th><th>现象</th><th>根因与修复</th></tr>
+      <tr><td>PyPI 版 torch 无 CUDA 库</td><td><code>import torch</code> 报 WinError 126 / 193</td><td>PyPI 的 torch Windows 包不打包 CUDA runtime（官方 Linux 才装 nvidia-* 依赖）；改用官方 <code>--index-url https://download.pytorch.org/whl/cu126</code> 的 <strong>+cu126 完整包</strong>（自带全部 CUDA dll）。</td></tr>
+      <tr><td>eos_id 等于 vocab_size</td><td>训练第一轮报 <code>CUDA error: device-side assert</code></td><td>Qwen2 的 eos=151643 恰等于 <code>tokenizer.vocab_size</code>=151643，而 embedding 索引范围是 0~151642，packing 时插入的 eos 越界。修复：<code>VOCAB_SIZE = max(len(tokenizer), eos_id+1, pad_id+1)</code> → 151646。</td></tr>
+      <tr><td>PowerShell 误报 stderr</td><td>脚本成功但退出码 1</td><td>HF 的 stderr 警告被 PowerShell 当作错误；用 <code>1&gt;out.log 2&gt;err.log</code> 分离重定向即可看清真实退出码。</td></tr>
+    </table>
+    <div class="callout"><b>课后实验建议：</b>① epoch 加到 200 观察完整过拟合曲线（eval 回升拐点）；② 换 hidden=192/2 层看欠拟合对照；③ 加大数据到 6000 句看 eval 是否不再那么快停滞 —— 每个变量都改一处、只观察一处，这正是这套实验台的价值。</div>
+  </section>
+
+  <!-- 12.5 数学组合实验 -->
+  <section>
+    <h2><span class="no">13</span>数学组合实验：让模型学会"一加一等于二"（用户自研，v1→v6）</h2>
+    <div class="callout"><b>实验目标：</b>不直接教"一加一等于几"，只训练基础数据（数字对应 / 加法算式 / 写法互换 / 大小间距），看模型能否自己组合出答案。这是对「抽象语义层」理论的直接检验：不同写法的数字是否会在模型内部投影到同一「数量」概念。</div>
+
+    <h3>13.1 实验链条（五次迭代，从全错到全对）</h3>
+    <table>
+      <tr><th>版本</th><th>数据设计</th><th>结果</th><th>关键结论</th></tr>
+      <tr><td>v1 纯部件</td><td>数量锚定 + 中文↔阿拉伯映射 + 加法全量 + 符号含义（2828 条）</td><td>"一加一等于"→"2+60=72"，组合完全不触发</td><td>41M 模型主体仅 1.8M 参数，装不下 2601 个精确映射，只学会统计外壳</td></tr>
+      <tr><td>v3 独立中阿算式</td><td>中/阿算式独立样本 + 数量对应 + 顺序（5686 条）</td><td>全部答错；连训练过的 1+1= 都错</td><td><strong>内部表示按"语言"聚类</strong>：一 vs 1 余弦相似度仅 0.287，中文数字一团、阿拉伯数字一团，互不相通</td></tr>
+      <tr><td>v4 互换写法</td><td>同一等式 8 种互换写法（1+1=2 / 一+一=2 / 1+一=2…，2304 条）</td><td>仅 1+1= 答对（偶然），其余退化为按高频结果瞎猜</td><td>暴露<strong>训练管线缺陷</strong>：packing 512 切块会随机切断"=后结果"关键转移</td></tr>
+      <tr><td>v4c/d 独立样本</td><td><code>--no-pack</code>：每条样本独立（eos 前缀 + batch 内 padding/mask），60 epoch</td><td>训练范围 10/12 对</td><td><strong>管线修复是分水岭</strong>；一 vs 1 相似度升至 0.694（互换训练拉近跨写法表示）</td></tr>
+      <tr><td><strong>v5 全排列</strong></td><td>每个加法式 16 种写法 × 交换律（1+2=3 与 2+1=3）+ 大小比较 + 减法（间距）+ 顺序序列（11786 条）</td><td><strong>训练范围 14/14 全对</strong></td><td>全排列写法 + 数值结构数据 = 记忆全覆盖；但范围外仍失败（统计记忆 ≠ 真计算）</td></tr>
+    </table>
+    <div class="callout"><b>双因素归因（重要）：</b>「变好」从 <strong>v4c/d</strong> 开始（7/12 → 10/12），功劳是 <code>--no-pack</code> 管线修复，不是 v4 的数据设计；<strong>v5</strong> 把「变好」推到「全对」（14/14），才是数据设计（全排列 + 交换律 + 大小间距）的功劳。若 v5 数据直接用旧 packing 管线跑，大概率仍被切块问题毁掉——<strong>先修管线、再谈数据</strong>。</div>
+
+    <h3>13.2 v5 测试结果（训练范围 0-30，14/14）</h3>
+    <table>
+      <tr><th>prompt</th><th>输出</th><th>验证点</th></tr>
+      <tr><td>1+2= / 2+1=</td><td>3 / 3</td><td>加法 + <strong>交换律</strong></td></tr>
+      <tr><td>一+二= / 二+一=</td><td>3 / 3</td><td>中文数字写法</td></tr>
+      <tr><td>一加二等于 / 二加一等于</td><td>3 / 3</td><td>中文句式 + 交换</td></tr>
+      <tr><td>9+7= / 7+9=</td><td>16 / 16</td><td>记忆 + 交换</td></tr>
+      <tr><td>15+15= / 3+3=</td><td>三十 / 6</td><td>双数（中/阿结果都能输出）</td></tr>
+      <tr><td>3-2= / 9-7=</td><td>1 / 2</td><td>减法（间距测量）</td></tr>
+      <tr><td>三减二等于 / 十五减五等于</td><td>一 / 十</td><td>中文减法</td></tr>
+      <tr><td>30小于 / 31+1=（未训练）</td><td>30小于30。 / 22</td><td><strong>外推失败</strong>：无真正的数轴计算</td></tr>
+    </table>
+
+    <h3>13.3 三个关键发现（对任何"小模型学数学"实验都适用）</h3>
+    <ul class="list">
+      <li><strong>训练管线优先于数据设计</strong>：packing 切块会随机把样本从"=后结果"处切断，该样本的关键监督信号直接丢失（两次相同训练结果不同）。修复：<code>--no-pack</code> 独立样本 + eos 前缀对齐训练/测试分布。在 v4 之前，所有失败都混入了这个管线污染。</li>
+      <li><strong>同一事实的写法变体 = 强制表示对齐</strong>：1+2=3 和 一+二=3 在同一位置预测同一结果，梯度直接把"一"的向量拉向"1"（0.287 → 0.694）。比任何"翻译桥"（把两句话连在一起）都有效——连句模型可走"文本接龙"捷径，等式内互换没有捷径。</li>
+      <li><strong>外推失败是必然</strong>：模型学会的是"0-30 内式子的统计记忆 + 局部模式"，不是加法函数；31+1= 完全不会。这与学界共识一致（LLM 算术本质是模式匹配，SCAN/COGS 证明组合泛化是开放难题）。</li>
+    </ul>
+
+    <h3>13.4 v6 结果：组合泛化成立（原始目标达成 ✅）</h3>
+    <p class="lead">v6 = v5 全量 + "几"问答数据（<code>一加二等于几？三。</code> 等 1485 条，覆盖全部有序对，<strong>排除测试式 (1,1)</strong>）。测试（eos 前缀对齐训练）：</p>
+    <table>
+      <tr><th>prompt</th><th>输出</th><th>判定</th></tr>
+      <tr><td><strong>一加一等于几</strong>（问句从未训练）</td><td><strong>一加一等于几？二。</strong></td><td>✅ 组合泛化成立：从"一加一等于二" + "X加Y等于几？Z。"组合出答案，还自动补问号</td></tr>
+      <tr><td>一加一等于几？ / 1+1等于几</td><td>二。 / 2。</td><td>✅ 带问号、阿拉伯版同样成立</td></tr>
+      <tr><td>二加二等于几 / 五加七等于几 / 9+7等于几</td><td>四。 / 十二。 / 16。</td><td>✅ 训过的问答式记忆正确</td></tr>
+      <tr><td>2+1= / 一+二= / 3-2=</td><td>3 / 3 / 1</td><td>✅ v5 能力全部保持</td></tr>
+    </table>
+    <div class="callout good"><b>结论：</b>用户原始目标达成 —— 从未训练"一加一等于几"这个问句，模型依靠"一=1"的内部对齐（v3 的 0.287 → v4d 的 0.694）与两段式知识组合，自己回答出"二"。这证明小模型在受限领域内可以形成可组合的知识结构；但注意这是「模式组合 + 局部记忆」，范围外（如 31+1=）依然失败，与组合泛化是开放难题的学界共识一致。</div>
+  </section>
+    <h3>13.5 v7 系列：放弃中文，纯阿拉伯数轴 + 整数加减（-50~50）（2026-09-08）</h3>
+    <p class="lead">用户决策：v6 组合泛化目标已达成，转入 <strong>v7：先学基础数学</strong>——放弃中文，纯阿拉伯数字，先训练数轴 + 整数加减（正整数/零/负数），范围 <strong>-50~50</strong>，减法负数用括号（<code>3-(-2)=5</code>），"几"问答暂不加。目标：让模型学会数轴（进位/过零）与整数四则中最基础的加减。</p>
+
+    <h4>13.5.1 v7 数据设计（01h_make_math_v7.py，26202 条）</h4>
+    <table>
+      <tr><th>数据块</th><th>内容</th><th>条数</th></tr>
+      <tr><td>[1] 相邻对</td><td>(-50,-49)...(49,50)，格式 <code>a b。</code>（空格分隔），×8 遍刷进位/过零</td><td>800</td></tr>
+      <tr><td>[2] 比较</td><td>a&lt;b 全量，<code>a小于b。</code>/<code>b大于a。</code>（<strong>无空格</strong>，否则"小于"被拆成子 token）</td><td>10100</td></tr>
+      <tr><td>[3] 加法</td><td>|a+b|≤50 全排列，负数加数括号 <code>(-3)+2=-1</code>，负结果直接 <code>=-1</code></td><td>7651</td></tr>
+      <tr><td>[4] 减法</td><td>|a-b|≤50 全排列，减数负数括号</td><td>7651</td></tr>
+    </table>
+    <p><strong>⚠️ 数据 bug（v7 失败主因之一）</strong>：[4] 减数负数写成 <code>{abs(b)}</code>，生成了 <code>3-(2)=5</code> 而非 <code>3-(-2)=5</code>——<strong>模型从没见过 <code>-(-2)</code> 这种写法</strong>，所以测试 <code>3-(-2)=</code> 只能按"减 2"猜出 1。</p>
+
+    <h4>13.5.2 v7 结果：数轴学会，负号全错</h4>
+    <table>
+      <tr><th>测试</th><th>结果</th><th>判定</th></tr>
+      <tr><td><code>19 20</code> / <code>-1 0</code> / <code>8 9</code> / <code>49 50</code></td><td><code>19 20。</code> 等</td><td>✅ 数轴相邻对全对（v6 时乱接）</td></tr>
+      <tr><td><code>1+1=</code>、<code>3+(-2)=</code>、<code>50+(-50)=</code></td><td>2 / 1 / 0</td><td>✅ 正数加法与 <code>+(-b)</code> 学会</td></tr>
+      <tr><td><code>(-3)+2=</code>、<code>(-3)+(-2)=</code>、<code>(-3)-2=</code></td><td>0 / 2 / 4（期望 -1 / -5 / -5）</td><td>❌ <code>(-</code> 开头的算式全不会</td></tr>
+      <tr><td><code>3-(-2)=</code></td><td>1（期望 5）</td><td>❌ 负负得正没学会（数据 bug 所致）</td></tr>
+      <tr><td><code>3-5=</code></td><td>1（期望 -2）</td><td>❌ 负结果没学会</td></tr>
+    </table>
+
+    <h4>13.5.3 v7.1 强化（01i_make_math_v71.py，56604 条）：量 + 对齐</h4>
+    <p>v7 全量 ×2（每对至少 2 次）+ <strong>负号语义对齐对</strong>（同一事实两种写法强制对齐，延续 v4/v5 经验）：</p>
+    <ul>
+      <li><strong>[5a] 负负得正</strong>：<code>a+b=c</code> ↔ <code>a-(-b)=c</code> 成对（教 <code>-(-b)</code>≡<code>+b</code>）</li>
+      <li><strong>[5b] 负首项交换</strong>：<code>(-a)+b=c</code> ↔ <code>b+(-a)=c</code> 成对（让 <code>(-</code> 开头模式多刷）</li>
+    </ul>
+    <p><strong>结果</strong>：<code>3-(-2)=5</code> ✅ 修复；但 <strong>所有负结果/负首项输出"绝对值对、符号丢"</strong>（<code>(-3)+2</code>→1、<code>3-5</code>→2、<code>(-3)-(-2)</code>→1）。logits 铁证：<code>=</code> 后 <code>-</code> token <strong>概率 &lt; 0.001</strong>。</p>
+
+    <h4>13.5.4 根因：tokenizer 把 <code>=-</code> 合并成单 token（v7.2 修复，01j_make_math_v72.py）</h4>
+    <p><strong>机制</strong>：Qwen2 tokenizer（BPE）把字符对 <code>=</code>+<code>-</code> 合并为一个 token <code>=-</code>（预训练语料里 <code>a=-1</code> 之类常见）。于是训练数据里：</p>
+    <ul>
+      <li>正结果 <code>1+1=2</code> → <code>=</code> 独立 token，后跟数字</li>
+      <li>负结果 <code>3-5=-2</code> → <strong>没有独立 <code>=</code></strong>，直接是 <code>=-</code> token</li>
+    </ul>
+    <p><strong>后果</strong>：训练分布里"独立 <code>=</code>"只出现在正结果前；测试 prompt <code>3-5=</code>（以 <code>=</code> 结尾）在训练里从未出现，模型被迫走"正结果通道"输出正数——<strong>不是符号没学会，是符号通道被 BPE 合并吞掉了</strong>。且 <code>3-5</code>（不带 <code>=</code>）也不行：<code>5</code> 后 next-token 分布被数轴/比较污染（<code>3-5</code>→<code>3-50=-4750</code>）。</p>
+    <p><strong>修复</strong>：负结果统一写成 <code>= -X</code>（等号后空格）→ 切分 <code>=</code> + <code>Ġ-</code> + <code>X</code>，<code>=</code> 后 next-token 变为"数字（正）或 <code>Ġ-</code>（负）"，符号判定通道打通。正结果保持 <code>=X</code> 不变。</p>
+
+    <h4>13.5.5 v7.2 结果（output_math_v72/final_model）：训练范围 15/15 全对 ✅</h4>
+    <table>
+      <tr><th>测试</th><th>输出</th><th>判定</th></tr>
+      <tr><td>数轴 4 项</td><td><code>19 20。</code> <code>-1 0。</code> <code>8 9。</code> <code>49 50。</code></td><td>✅</td></tr>
+      <tr><td>比较 3 项</td><td><code>-3小于-2。</code> <code>5大于-1。</code> <code>-5小于33。</code></td><td>✅ 数学正确</td></tr>
+      <tr><td>加法 5 项</td><td><code>1+1=2</code> <code>3+(-2)=1</code> <code>(-3)+2= -1</code> <code>(-3)+(-2)= -5</code> <code>50+(-50)=0</code></td><td>✅ 负首项修复</td></tr>
+      <tr><td>减法 5 项</td><td><code>3-2=1</code> <code>3-(-2)=5</code> <code>(-3)-2= -5</code> <code>(-3)-(-2)= -1</code> <code>3-5= -2</code></td><td>✅ 负负得正、负结果修复</td></tr>
+      <tr><td>外推 2 项</td><td><code>51+1=47</code> <code>(-50)-1= -50</code></td><td>❌ 范围外（|c|&gt;50 未训，符合预期）</td></tr>
+    </table>
+    <p><strong>探针证据（学到的是规则而非背诵）</strong>：</p>
+    <ul>
+      <li><strong>logit lens</strong>：<code>23+12=</code>→首 token <code>3</code>(p=0.991)、<code>20+10=</code>→<code>3</code>(0.983)、<code>19+1=</code>→<code>2</code>(0.988)、<code>9+10=</code>→<code>1</code>(0.988)、<code>1+1=</code>→<code>2</code>(0.950)——全部范围内算式高置信正确（v6 时 <code>23+12=</code> 输出 27 错误）</li>
+      <li><strong>embedding PCA</strong>：阿拉伯 0-9 数轴性（最近邻一致性）<strong>0.70 → 0.90</strong>（v6 挤团 → v7.2 局部长条），10 个数字中 9 个的最近邻是相邻数字；中文 token 0.08（随机，v7 已放弃中文）</li>
+    </ul>
+
+    <h4>13.5.6 v7 系列已知边界（诚实记录）</h4>
+    <ul>
+      <li><strong>长序列续写</strong>：<code>0 1 2 ... 8 9</code> 后模型认为 <code>9</code> 是"相邻对（8 9）的末尾"→ 句号/EOS，不会续 <code>10</code>——数据只含两两相邻对、删除了全序列（no-pack 下长序列 padding 拖慢 30 倍），长序列连贯性是显式取舍</li>
+      <li><strong>外推</strong>：|结果|&gt;50 失败（<code>51+1=47</code>），范围内记忆 + 局部模式，非真代数</li>
+      <li><strong>停止行为</strong>：算式完成后偶发继续续写（<code>23+12=352928</code>，35 正确后无停止信号继续生成）</li>
+      <li><strong>格式约定</strong>：负结果输出带空格（<code>3-5= -2</code>），是 BPE 合并约束下的工程取舍</li>
+    </ul>
+
+
   <footer>
     <p>本文档由「大模型训练流程学习」会话讨论结果固化整理。所有配置、参数、结论均来自该会话的逐步确认；显存/时长为估算口径，已在文中标注。适用硬件：本地 4060-8G / 4070-8G。</p>
-    <p style="margin-top:6px">下一步行动项：① 编写「随机初始化小模型 + 玩具数据集」从零预训练完整脚本；② 填表敲定实验方案数字；③ 跑通后依次推进 GQA → MoE 对照 → SFT → DPO。</p>
+    <p style="margin-top:6px">下一步行动项：① v7.2 训练范围（-50~50 整数加减）已 15/15 全对，数轴 embedding 已形成（一致性 0.90）；② 可选：恢复"几"问答与中文、扩展范围（需换采样/分级策略）、攻克外推；③ 深挖内部表示（probing 分类器）；④ 依次推进 GQA → MoE 对照 → SFT → DPO。</p>
   </footer>
 
 </div>

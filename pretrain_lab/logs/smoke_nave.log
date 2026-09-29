@@ -1,0 +1,16 @@
+[1/7] 数据集加载完成：300 条样本 <- data/_smoke_v4.jsonl
+[2/7] Tokenizer 加载完成：vocab_size = 151646（eos=151643）
+[3/7] 模型随机初始化完成：总参数量 = 65.32M，设备 = cuda，精度 = BF16
+[3b] NAVE 已启用：digit_ids=[15, 16, 17, 18, 19, 20, 21, 22, 23, 24]，theta=8，编码器参数 157.4K（零初始化 proj → 起点等价于无 NAVE）
+    学习率 = 0.0003
+[4/7] 独立样本模式（长度分桶）：train 240 / val 60 条，batch=16
+[4/7] 独立样本模式：train 240 条 / val 60 条（batch 内 pad，样本内转移全部完整，无切块破坏）
+[5/7] 优化器 AdamW(lr=0.0003)，总步数 ≈ 15，warmup 1 步，cosine 退火
+[对拍] 分块 loss vs HF 原生 loss（必须近似一致，否则拒绝训练）
+       HF 原生 = 12.025809 | 分块 = 12.025809 | 绝对差 = 0.000000 | 相对差 = 0.0000%
+       对拍通过（相对差 < 0.1%）
+[6/7] 开始训练 ...
+  epoch 01/1 | train_loss 10.4846 | eval_loss 9.8237 | lr 0.00e+00 | 已用 7s
+[7/7] 训练结束，总耗时 7s
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  6.11it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  6.09it/s]
+最终模型已保存到 output_smoke_nave/final_model/（完整权重 + config + tokenizer）

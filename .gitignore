@@ -6,7 +6,8 @@
 ._*
 
 # Custom folder icons
-Icon
+Icon
+
 
 # Volume root files
 .DocumentRevisions-V100
@@ -29,3 +30,33 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+
+### Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# Roo 本地命令信任记录（个人本地状态，含命令历史哈希，不入库）
+.roo/command-trust.json
+
+# 本地虚拟环境（约 4GB，含 torch/cuda 二进制，不入库）
+.venv/
+venv/
+env/
+
+### 模型权重与训练产物（单文件 >100MB，超 GitHub 硬限制；可由脚本重新训练复现）
+*.safetensors
+*.safetensors.index.json
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.gguf
+# 训练中间检查点（optimizer state 等）
+pretrain_lab/output_*/checkpoints/
+
+# 注：output_*/final_model/ 下的 config.json / generation_config.json /
+#     tokenizer_config.json / chat_template.jinja / tokenizer.json 属于小配置文件，
+#     记录各版本实验的模型结构与超参，**保留入库**。
