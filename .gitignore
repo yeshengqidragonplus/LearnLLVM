@@ -42,6 +42,7 @@ __pycache__/
 
 # 本地虚拟环境（约 4GB，含 torch/cuda 二进制，不入库）
 .venv/
+.venv-*/
 venv/
 env/
 
@@ -57,6 +58,8 @@ env/
 # 训练中间检查点（optimizer state 等）
 pretrain_lab/output_*/checkpoints/
 
-# 注：output_*/final_model/ 下的 config.json / generation_config.json /
-#     tokenizer_config.json / chat_template.jinja / tokenizer.json 属于小配置文件，
-#     记录各版本实验的模型结构与超参，**保留入库**。
+# 实验运行产物：结果先归入总册，生成文件不入库。
+pretrain_lab/output/
+pretrain_lab/output_*/
+pretrain_lab/data/
+pretrain_lab/logs/

@@ -1,5 +1,3 @@
-# 实验依赖（在虚拟环境 .venv 中安装）
-# 注意：torch 必须装 CUDA 版（RTX 4060），安装命令见 README
-torch>=2.6
-transformers>=4.46
-sentencepiece
+# 通用依赖；PyTorch 由 setup_env.py 按 CPU/CUDA/操作系统单独安装。
+transformers==5.16.1
+sentencepiece==0.2.2

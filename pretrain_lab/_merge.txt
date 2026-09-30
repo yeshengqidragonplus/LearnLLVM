@@ -1,4 +1,0 @@
-  data/_v5_a.jsonl: 59078 条
-  data/_v5_b.jsonl: 58953 条
-合并去重后 = 94942
-写入 data/math_v5.jsonl = 94942

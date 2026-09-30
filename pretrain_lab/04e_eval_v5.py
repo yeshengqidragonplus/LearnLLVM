@@ -4,19 +4,20 @@
 ⚠️ 关键：NAVE 模型**不能用 model.generate**（新 token 走内建 embed_tokens，
    不会注入 NAVE → 与训练不一致）。必须手写贪心解码。
 
-核心判据（DESIGN_nave_v5 §7.3）：
+核心判据（实验总册归档 NAVE v5 §7.3）：
   · copy probe 5 位 ≥60% → 破墙成功（v4-A 是 0%）
   · 取位 probe 5/6 位 → 位置定位是否可用
   · 宽度扫描 5 位后继/加法 ≥60%
   · 数轴几何 cos(e_val(v),e_val(v+1)) 远高于随机基线
 
 用法：
-  .\.venv\Scripts\python 04e_eval_v5.py --model output_v5c1/final_model --nave --n
+  .\.venv\Scripts\python 04e_eval_v5.py --model output_v5c1/final_model --nave --n 10
   （--nave 必须与训练时一致；不带则按普通模型走 model.generate）
 """
 import sys
 sys.stdout.reconfigure(encoding="utf-8")
 import argparse
+from runtime import add_runtime_args, resolve_runtime
 import random
 import re
 
@@ -26,7 +27,12 @@ parser.add_argument("--nave", action="store_true", help="模型训练时启用�
 parser.add_argument("--nave-theta", type=int, default=8)
 parser.add_argument("--n", type=int, default=10)
 parser.add_argument("--seed", type=int, default=123)
+parser.add_argument("--max-new-tokens", type=int, default=400,
+                    help="每题生成上限；正式评估默认400，环境冒烟可设4（成绩无意义）")
+add_runtime_args(parser)
 args = parser.parse_args()
+if args.max_new_tokens < 1 or args.n < 1:
+    parser.error("--max-new-tokens 和 --n 必须为正整数")
 
 rng = random.Random(args.seed)
 
@@ -35,9 +41,9 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 import torch
 from transformers import AutoTokenizer, Qwen2ForCausalLM
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device, dtype = resolve_runtime(args.device, args.dtype)
 tok = AutoTokenizer.from_pretrained("tokenizer")
-model = Qwen2ForCausalLM.from_pretrained(args.model).to(torch.bfloat16).to(device)
+model = Qwen2ForCausalLM.from_pretrained(args.model).to(dtype).to(device)
 model.generation_config.pad_token_id = tok.pad_token_id
 model.generation_config.eos_token_id = tok.eos_token_id
 model.eval()
@@ -69,7 +75,7 @@ if args.nave:
             print(f"[NAVE] 从 state_dict 恢复编码器（{len(nave_sd)} 张量）")
         else:
             print(f"[NAVE] ⚠️ 未找到 {_nave_path}，编码器为随机初始化（结果不可信！）")
-    NAVE.enc = NAVE.enc.to(torch.bfloat16).to(device)
+    NAVE.enc = NAVE.enc.to(dtype).to(device)
     NAVE.enc.eval()
 
 
@@ -104,7 +110,9 @@ def greedy_decode(prompt, max_new=400):
     return tok.decode(out_ids, skip_special_tokens=True)
 
 
-def gen(prompt, max_new=400):
+def gen(prompt, max_new=None):
+    if max_new is None:
+        max_new = args.max_new_tokens
     if NAVE is not None:
         return greedy_decode(prompt, max_new)
     x = torch.tensor([[eos] + tok.encode(prompt)], device=device)
@@ -266,7 +274,7 @@ for dim in ["CP", "RP", "W", "C"]:
         pct = 100.0 * ok / total if total else 0
         print(f"    {level:<6} {label:<26} {ok}/{total} = {pct:5.1f}%")
 
-print("\n判据（DESIGN_nave_v5 §7.3）：")
+print("\n判据（实验总册归档 NAVE v5 §7.3）：")
 print("  CP-5位 ≥60% → ★破墙成功（v4-A 是 0%）")
 print("  RP 5/6 位高 → 位置定位可用")
 print("  W-5位 ≥60% → 宽度外推成功")

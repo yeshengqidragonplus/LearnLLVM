@@ -6,12 +6,14 @@
 关键点（讨论纪要）：
   - 完整工业流程里 tokenizer 是独立训练的一步；个人实验复用现成 tokenizer，但要记住这一步存在；
   - Tokenizer 和模型强绑定：词表变了，Embedding / LM-Head 维度必须同步 ——
-    因此模型 config 的 vocab_size 将跟随 Qwen2 词表（151936），不再是我们定稿表的 16384。
+    因此模型 config 的 vocab_size 将跟随 Qwen2 词表（以本地 tokenizer 实际长度为准），不再是我们定稿表的 16384。
   - 本步骤需联网下载（约 10MB，已配置国内镜像加速）。
 
 输出: tokenizer/ 目录下的 Qwen2 官方 tokenizer 文件（tokenizer_config.json / vocab.json / merges.txt / tokenizer.json）
 """
 import os
+import sys
+sys.stdout.reconfigure(encoding="utf-8")
 
 # 使用国内镜像下载 HuggingFace 资源（默认源在国内可能超时）
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
@@ -44,12 +46,4 @@ for s in samples:
     print(f"  token 数：{len(ids)}")
     print(f"  ids：{ids[:20]}")
 
-# 统计平均每条约多少 token（用于估算总 token 规模）
-import json
-texts = []
-with open("data/toy_pretrain.jsonl", encoding="utf-8") as f:
-    for line in f:
-        texts.append(json.loads(line)["text"])
-lens = [len(tokenizer.encode(t)) for t in texts]
-print(f"\n数据规模统计：共 {len(texts)} 条，平均 {sum(lens)/len(lens):.1f} token/条，"
-      f"总 token ≈ {sum(lens)}")
+# 数据由 01e 生成；下载 tokenizer 不再依赖已删除的 toy 数据。

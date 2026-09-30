@@ -14,6 +14,7 @@ import argparse
 import sys
 
 import torch
+from runtime import add_runtime_args, resolve_runtime
 from transformers import Qwen2ForCausalLM, AutoTokenizer
 
 try:
@@ -30,20 +31,21 @@ def main():
                         help="采样温度：0=贪心（最稳），0.7~1.0=更多样（更容易看到重复循环）")
     parser.add_argument("--no-eos-prefix", action="store_true",
                         help="不加 eos 前缀（旧模型用；数学实验模型 v4+ 都是 eos 前缀训练的，默认加）")
+    add_runtime_args(parser)
     args = parser.parse_args()
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device, dtype = resolve_runtime(args.device, args.dtype)
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
     print(f"加载模型 {args.model} ...")
     model = Qwen2ForCausalLM.from_pretrained(args.model)
-    model = model.to(torch.bfloat16).to(device)
+    model = model.to(dtype).to(device)
     model.eval()
     model.generation_config.pad_token_id = tokenizer.pad_token_id
     model.generation_config.eos_token_id = tokenizer.eos_token_id
-    print(f"就绪：设备={device}，精度=BF16，temp={args.temp}，max_new_tokens={args.max_tokens}"
+    print(f"就绪：设备={device}，精度={dtype}，temp={args.temp}，max_new_tokens={args.max_tokens}"
           f"{'' if args.no_eos_prefix else '，eos前缀=开'}")
     print("输入想测试的文本（中文/英文都行），回车续写；exit 退出\n")
 

@@ -1,3 +1,0 @@
-[W917 11:00:34.000000000 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 2107637760 bytes (free: 0, total: 8585216000).
-[W917 11:03:52.000000000 CUDACachingAllocator.cpp:3934] memory allocation failed with OOM on device 0 while trying to allocate 2436890624 bytes (free: 0, total: 8585216000).
-Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  4.30it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  4.27it/s]

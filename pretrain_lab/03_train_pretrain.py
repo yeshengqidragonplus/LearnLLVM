@@ -2,10 +2,10 @@
 """
 03_train_pretrain.py
 从零预训练主脚本：随机初始化一个 Dense Decoder-Only Transformer（Qwen2 架构小模型），
-用玩具数据集（400 条中英文本）做因果自回归预训练，全量 BF16 训练。
+使用 JSONL 数学数据做因果自回归预训练，按设备选择 BF16 或 FP32。
 
 流程对应（讨论纪要第 6 章）：
-  1) 加载数据集（data/toy_pretrain.jsonl）
+  1) 加载数据集（data/math_v5.jsonl）
   2) 加载 tokenizer（tokenizer/，复用现成 Qwen2）
   3) 随机初始化模型（不加载任何预训练权重！）
   4) 数据预处理：tokenize + packing 成 512 块，train/val 划分
@@ -19,8 +19,14 @@ import os
 import random
 import sys
 import time
+import hashlib
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
 
 import torch
+from runtime import add_runtime_args, resolve_runtime
+from runtime import environment_info
 from torch.utils.data import DataLoader, TensorDataset
 from transformers import Qwen2Config, Qwen2ForCausalLM, AutoTokenizer
 
@@ -39,12 +45,12 @@ LR = 3e-4
 WARMUP_RATIO = 0.05
 GRAD_CLIP = 1.0
 VAL_RATIO = 0.2
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-# 命令行参数：默认跑旧实验；--data/--out 可切换到新数据集（互不影响）
+
+# 命令行参数：数学实验完整参数见 README；默认架构仍是小型通用配置。
 import argparse
 _parser = argparse.ArgumentParser()
-_parser.add_argument("--data", default="data/toy_pretrain.jsonl", help="训练数据 jsonl 路径")
+_parser.add_argument("--data", default="data/math_v5.jsonl", help="训练数据 jsonl 路径")
 _parser.add_argument("--out", default="output", help="输出目录（checkpoints/ 与 final_model/ 的子目录）")
 _parser.add_argument("--hidden", type=int, default=256, help="hidden_size")
 _parser.add_argument("--layers", type=int, default=3, help="num_hidden_layers")
@@ -53,11 +59,12 @@ _parser.add_argument("--no-pack", action="store_true",
                      help="每条样本独立训练（不 packing，杜绝 512 切块把样本切断；batch 内 padding + mask）")
 _parser.add_argument("--batch", type=int, default=None,
                      help="no-pack 模式的 batch size（默认 64；样本很长时 OOM 可降，"
-                          "如 v8.2 的六位数 CoT 约 90 token，8G 显卡建议 32）")
+                          "8GB 显卡建议显式指定 8 或 16，并按真实样本长度调整）")
 _parser.add_argument("--bucket", action="store_true",
                      help="no-pack 模式按长度分桶（长度相近的样本凑一个 batch，"
                           "减少 padding 浪费；CoT 长短混合数据集提速明显）")
 _parser.add_argument("--epochs", type=int, default=30, help="训练轮数")
+_parser.add_argument("--seed", type=int, default=42, help="数据划分与模型初始化随机种子")
 _parser.add_argument("--no-checkpoints", action="store_true",
                      help="不保存每 epoch checkpoint（只存 final_model，省磁盘；每 epoch 约 130MB）")
 _parser.add_argument("--init-from", default=None,
@@ -73,12 +80,15 @@ _parser.add_argument("--loss-chunk", type=int, default=0,
 _parser.add_argument("--verify-loss", action="store_true",
                      help="训练前对拍：分块 loss 与 HF 原生 loss 必须几乎一致，否则拒绝训练")
 _parser.add_argument("--nave", action="store_true",
-                     help="启用 NAVE 数字值嵌入（DESIGN_nave_v5.md）："
+                     help="启用 NAVE 数字值嵌入（根目录实验总册中的 NAVE v5 设计）："
                           "给每个数字 token 注入因果安全的'前缀值'表示，"
                           "让数在潜空间成为整体（绕开复制通道定宽墙）。默认关。")
 _parser.add_argument("--nave-theta", type=int, default=8,
                      help="NAVE 连续位权编码的角度数（2*n 维输出），默认 8")
+add_runtime_args(_parser)
 _args = _parser.parse_args()
+DEVICE, DTYPE = resolve_runtime(_args.device, _args.dtype)
+SEED = _args.seed
 
 if _args.no_pack:
     BATCH_SIZE = _args.batch if _args.batch else 64   # 独立短样本，batch 加大提速
@@ -89,14 +99,16 @@ DATA_PATH = _args.data
 TOKENIZER_DIR = "tokenizer"
 CKPT_DIR = f"{_args.out}/checkpoints"
 FINAL_DIR = f"{_args.out}/final_model"
-LOG_PATH = "logs/train.log"
+LOG_PATH = f"{_args.out}/train.log"
+RUN_PATH = Path(_args.out) / "run.json"
+if RUN_PATH.exists() or Path(FINAL_DIR).exists():
+    raise SystemExit("输出目录已有实验记录或模型，请换一个 --out，避免覆盖另一次实验。")
 
 random.seed(SEED)
 torch.manual_seed(SEED)
 
 os.makedirs(CKPT_DIR, exist_ok=True)
 os.makedirs(FINAL_DIR, exist_ok=True)
-os.makedirs("logs", exist_ok=True)
 
 
 def log(msg):
@@ -119,6 +131,40 @@ if tokenizer.pad_token is None:
 # 词表大小必须覆盖特殊 token id（Qwen2 的 eos=151643 == vocab_size，直接用它做 embedding 行数会越界）
 VOCAB_SIZE = max(len(tokenizer), tokenizer.eos_token_id + 1, tokenizer.pad_token_id + 1)
 log(f"[2/7] Tokenizer 加载完成：vocab_size = {VOCAB_SIZE}（eos={tokenizer.eos_token_id}）")
+
+# 每次实验自带可公开分享的元数据；不保存本机用户名、主机名或环境变量。
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+try:
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL,
+                                       text=True, timeout=5).strip()
+    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], text=True, timeout=5).strip())
+except (OSError, subprocess.SubprocessError):
+    revision, dirty = None, None
+run_record = {
+    "status": "started", "started_utc": datetime.now(timezone.utc).isoformat(),
+    "environment": environment_info(DEVICE, DTYPE), "arguments": vars(_args),
+    "git_commit": revision, "git_dirty": dirty,
+    "script_sha256": {p.name: sha256_file(p) for p in Path(__file__).parent.glob("*.py")},
+    "data": {"samples": len(texts), "sha256": sha256_file(DATA_PATH)},
+    "tokenizer_sha256": {p.name: sha256_file(p) for p in Path(TOKENIZER_DIR).iterdir() if p.is_file()},
+    "effective_batch_size": BATCH_SIZE, "epochs": [],
+}
+
+
+def save_run_record():
+    temporary = RUN_PATH.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(run_record, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(RUN_PATH)
+
+
+save_run_record()
 
 # ================= 3. 初始化模型（随机 或 从已有权重续训） =================
 config = Qwen2Config(
@@ -152,17 +198,17 @@ if _args.init_from:
     if mismatches:
         raise SystemExit(f"[错误] --init-from 模型架构与参数不符：{'; '.join(mismatches)}。"
                          f"续训必须用与原模型完全相同的 --hidden/--layers/--heads。")
-    model = model.to(torch.bfloat16).to(DEVICE)
+    model = model.to(DTYPE).to(DEVICE)
     n_params = sum(p.numel() for p in model.parameters())
     log(f"[3/7] 从 {_args.init_from} 加载权重续训：总参数量 = {n_params/1e6:.2f}M，"
-        f"设备 = {DEVICE}，精度 = BF16（课程学习模式）")
+        f"设备 = {DEVICE}，精度 = {DTYPE}（课程学习模式）")
 else:
     model = Qwen2ForCausalLM(config)    # 只有结构配置，权重全部随机初始化！
-    model = model.to(torch.bfloat16).to(DEVICE)
+    model = model.to(DTYPE).to(DEVICE)
     n_params = sum(p.numel() for p in model.parameters())
-    log(f"[3/7] 模型随机初始化完成：总参数量 = {n_params/1e6:.2f}M，设备 = {DEVICE}，精度 = BF16")
+    log(f"[3/7] 模型随机初始化完成：总参数量 = {n_params/1e6:.2f}M，设备 = {DEVICE}，精度 = {DTYPE}")
 
-# ================= 3b. NAVE 数字值嵌入（--nave，DESIGN_nave_v5.md） =================
+# ================= 3b. NAVE 数字值嵌入（--nave，根目录实验总册中的 NAVE v5 设计） =================
 # 关键：把编码器挂为 model 的**子模块**（model.nave），使：
 #   ① 进入 model.parameters() → 优化器自动覆盖
 #   ② save_pretrained/from_pretrained 自动存取（state_dict 含子模块）
@@ -179,7 +225,7 @@ if _args.nave:
         _digit_ids.append(_ids[0])
     NAVE = NaveWrapper(model, _args.hidden, _digit_ids, n_theta=_args.nave_theta)
     # ⚠️ 必须在 model.to(DEVICE) 之后创建 → 需手动搬到同设备/同精度
-    NAVE.enc = NAVE.enc.to(torch.bfloat16).to(DEVICE)
+    NAVE.enc = NAVE.enc.to(DTYPE).to(DEVICE)
     model.nave = NAVE.enc                      # 挂子模块 → 进 parameters/save
     _nave_params = sum(p.numel() for p in NAVE.enc.parameters())
     log(f"[3b] NAVE 已启用：digit_ids={_digit_ids}，theta={_args.nave_theta}，"
@@ -452,6 +498,9 @@ for epoch in range(1, NUM_EPOCHS + 1):
     elapsed = time.time() - t0
     log(f"  epoch {epoch:02d}/{NUM_EPOCHS} | train_loss {train_loss:.4f} | "
         f"eval_loss {eval_loss:.4f} | lr {cur_lr:.2e} | 已用 {elapsed:.0f}s")
+    run_record["epochs"].append({"epoch": epoch, "train_loss": train_loss,
+                                "eval_loss": eval_loss, "lr": cur_lr, "elapsed_seconds": elapsed})
+    save_run_record()
 
     # 每 epoch 保存一个 checkpoint（完整权重，不是 LoRA）；--no-checkpoints 时跳过（省磁盘）
     if not _args.no_checkpoints:
@@ -468,3 +517,6 @@ if NAVE is not None:
     torch.save(NAVE.enc.state_dict(), f"{FINAL_DIR}/nave.pt")
     log(f"NAVE 编码器已保存到 {FINAL_DIR}/nave.pt")
 log(f"最终模型已保存到 {FINAL_DIR}/（完整权重 + config + tokenizer）")
+run_record["status"] = "completed"
+run_record["finished_utc"] = datetime.now(timezone.utc).isoformat()
+save_run_record()
