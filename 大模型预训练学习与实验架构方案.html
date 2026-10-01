@@ -1,7 +1,7 @@
 <!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>预训练实验室 · 实验与经验总册</title><style>body{max-width:1100px;margin:40px auto;padding:0 24px;font:16px/1.75 system-ui;color:#203044;background:#f7f9fc}h1,h2{color:#163f64}table{border-collapse:collapse;width:100%;background:white}td,th{border:1px solid #ccd6df;padding:10px;text-align:left}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#fff;padding:16px;font:13px/1.6 Consolas,monospace}details{margin:12px 0;border:1px solid #ccd6df;border-radius:8px;padding:12px}summary{cursor:pointer;font-weight:600}a{color:#12649c}</style><body>
 <h1>预训练实验室 · 实验与经验总册</h1>
 <p>整理日期：2026-09-30。唯一实验室：<code>pretrain_lab/</code>。最新保留路线：现代数学 v5 / NAVE。下方历史材料按原文保留，旧计划与旧推断不等于当前事实。</p>
-<nav><a href="#results">实验总表</a> · <a href="#lessons">经验</a> · <a href="#state">现状</a> · <a href="#evidence">原始依据</a></nav>
+<nav><a href="pretrain_lab/courses/course-00-preface.html">前言课：语言、意义与结构</a> · <a href="pretrain_lab/courses/course-01-dense-decoder.html">课程 1：稠密 Transformer 与 GPT</a> · <a href="pretrain_lab/courses/course-01b-attention-context-rnn.html">课程 1 延伸：注意力、上下文与 RNN</a> · <a href="pretrain_lab/courses/course-02-moe.html">课程 2：MoE</a> · <a href="pretrain_lab/courses/course-03-package-router.html">课程 3：Package + 新式路由</a> · <a href="#results">实验总表</a> · <a href="#lessons">经验</a> · <a href="#state">现状</a> · <a href="#evidence">原始依据</a></nav>
 <h2 id="results">两条实验线，版本号分别计数</h2>
 <table><tr><th>系列 / 版本</th><th>数据与训练</th><th>主要结果与限制</th></tr>
 <tr><td>早期 toy / v1–v6</td><td>从中文短句到组合算式</td><td>打通训练链路；早期 v5 测试 14/14，v6 回答未训练的“一加一等于几”问句（历史记录），不代表任意算术能力。</td></tr>
@@ -5474,6 +5474,35 @@ NAVE 编码器已保存到 output_portable_cpu/final_model/nave.pt
 <li>递归专家是否能在预算内停止并检查步骤；更深模型是否能产生超出既有规则的研究假设，不能预先当作已成立能力。</li>
 </ul>
 <p><strong>总体判断：</strong>可插拔专家、工具路由和保留原始 payload 的 package 系统，在工程上有可行路径；外层结构化是否带来目标中的泛化和学习收益、递归专家能否支持更强的自主研究，仍是研究假设。下一步应先选一个窄任务做对照实验，再扩展到软件专家与跨专家协作。</p>
+
+<h4>Package/token v1 初步实测（2026-10-01）</h4>
+<p>在本地 Qwen2 tokenizer（<code>vocab_size=151643</code>，<code>len(tokenizer)=151646</code>）上验证。原算式 <code>1234567+2222</code> 被切为 12 个 token；候选标记 <code>&lt;|PKG_ARITH|&gt;</code> 未注册时被切为 7 个 token。将该标记临时注册为 additional special token 后，新增 1 个词表项（内存中长度变为 151647，ID=151646）；单独编码及嵌入中文上下文均保持为 1 个 token，decode 可精确还原标记。</p>
+<p>package 原型自检确认路由视图不含操作数，运行时 package payload 可逐字恢复；日期 <code>2026-09-30</code> 不会被 v1 的加法识别器打包。验证使用 <code>pretrain_lab/06_package_router_v1.py --self-test</code> 与 <code>--check-tokenizer tokenizer</code>，均通过。特殊 token 扩展只在内存中进行，未改写仓库 tokenizer 文件。</p>
+<p>随后在同一原型加入规则路由基线和整数计算专家：明确的直接计算请求（如“请计算 1234567+2222”）经 package 化后路由到程序，得到 <code>1236789</code>；路由视图为“请计算 &lt;|PKG_ARITH|&gt;”，没有把操作数传给路由器。竖式请求、没有明确直接计算意图、日期、乘法和多算式请求均返回 <code>UNKNOWN</code>。package/router/tool 内置自检与三条命令行路径验证通过。</p>
+<p><strong>规则基线证据边界：</strong>规则路由基线证明了前置打包、运行时恢复和整数计算程序可以串接。Qwen tokenizer 中的特殊 token 仅作临时注册测试，未永久改写；它的 ID 尚未送入使用 Qwen 词表的模型。</p>
+<h4>学习路由器 v1 初测（2026-10-01）</h4>
+<p>另训练了一个约 <strong>875,906 参数</strong>的 Transformer 编码器分类器，4070 Laptop CUDA，合成训练集 2,400 条（直接计算/UNKNOWN 各 1,200 条），训练 16 轮。该独立路由器使用 259 项 UTF-8 字节词表，字节 ID 0–255，固定的 <code>PKG_ARITH</code> 单 token ID 为 256，BOS/PAD 为 257/258；所有算式 package 共用这个 embedding。路由器只接收用户任务文本和 package 类型标记，不接收数字 payload，最大输入 384 个字节 token。因此它不是 256K 上下文模型，也不是已有 Qwen 大模型。</p>
+<p>在训练中出现过的标准措辞上，端到端请求 <code>请计算 1234567+2222</code> 由学习路由器预测 <code>CALCULATOR</code>，安全路由门放行后调用整数专家并返回 <code>1236789</code>；<code>请对 1234567+2222 做竖式计算</code> 被预测/拒绝为 <code>UNKNOWN</code>。无 package 的日期、多算式和未支持算式由外层检查返回 <code>UNKNOWN</code>。若模型预测计算器但规则安全门无法确认直接计算意图，也拒绝工具调用并返回 <code>UNKNOWN</code>。package/路由/工具自检与实际命令行路径通过。</p>
+<p>独立的 12 条未见措辞测试准确率为 <strong>58.3%</strong>（CALCULATOR 25%，UNKNOWN 75%）；例如部分新的“求值/给答案”措辞被错分为 UNKNOWN，部分步骤请求错分为 CALCULATOR。训练 loss 接近零不能代表泛化成功。测试集很小且为合成模板，只说明固定接口上的链路可运行，不足以证明开放式自然语言路由可用。竖式专家仍未实现。</p>
+<p><strong>阶段结论：</strong>“共享 package 类型 embedding + 隐藏 payload + 路由至外部整数专家”已在一个小型训练模型上完成窄范围演示；路由泛化尚未达标。这是初步可行性证据，不是大模型训练结果、长上下文能力结论或对 Transformer 能力的证明。</p>
+<h4>学习路由器 v1.1 数据准备（2026-10-01，尚未训练）</h4>
+<p>交互测试发现带两个空格的“计算  15468+9879877989”和裸算式“8888+6666”都错误返回 <code>UNKNOWN</code>；无空格的“计算15468+9879877989”路由成功并得到 <code>9879893457</code>。随后明确将前置规范化作为结构处理：package 替换后，将连续水平空白折叠成一个空格再输入路由器，原始 payload 仍逐字保存在包表中。因此一个空格与多个空格具有相同路由表示，无须用模型学习空格数量；裸算式仍映射为单独的 package 标记。裸算式外层规则路由设为直接计算；解释、竖式和明确拒绝计算仍由安全门拒绝。固定数据为 2,400 条平衡训练样本及 13 条留出样本，位于忽略的 <code>pretrain_lab/output_router_v1_round2/data/</code>，训练前已人工检查。随后按 batch=64、16 epoch 训练，共 608 次更新；RTX 4070 Laptop CUDA 用时约 6.5 秒，峰值显存约 0.21 GiB。train loss 降至近 0；留出准确率前期最高 84.6%（CALC=80%、UNKNOWN=87.5%），之后回落，最后一轮为 61.5%（CALC=80%、UNKNOWN=50%），保存的是第 16 轮。原先失败的多空格、单空格、无空格和裸算式测试现均路由并正确计算；竖式请求返回 <code>UNKNOWN</code>。训练—留出差距及极小留出集意味着明显过拟合风险，结果只验证规范化和接口修正，不支持开放式路由泛化结论。</p>
+<h4>独立竖式数学专家 v1（2026-10-01）</h4>
+<p>为验证渐进展开，冻结已训练的 package 路由基座，另建约 <strong>957,568 参数</strong>的 UTF-8 字节级因果 Transformer 数学专家。专家接收展开后的 <code>FADD a+b</code> 内容，按个位向高位逐列生成操作数数字、进位、列和、写入位和新进位，最后给出和。训练数据 6,000 条、验证数据 512 条，均只含 1–4 位操作数；宽度外数据为 5–8 位，每个宽度 64 条，其中连续进位样本占一部分。教师答案由逐位加法程序生成。</p>
+<p>4070 Laptop CUDA 训练 12 轮、batch=64、每轮 94 次更新，训练约 29 秒。最终 train loss=0.02891、valid token loss=0.01596，但留出宽度测试每档随机评估 24 条，5、6、7、8 位答案准确率均为 0/24；随机 1–4 位小测也不稳定（分别 8/8、5/8、7/8、3/8）。一次 9999+1 连续进位测试正确，另一次 123+45 将中间列写错，显示个别成功不足以证明算法已学会。该结果揭示 token loss 与算术算法正确率的差异，是当前配置下的负结果。</p>
+<p>竖式请求目前由显式意图规则分发给独立专家，路由基座权重未变；因此系统级 package→专家闭环已接通，但三分类学习路由尚未接入。该模块化方式不是经典 Transformer 内部 MoE：经典 MoE 通常将专家网络放在模型层内，由稀疏 router 按 token 分发并联合训练。数学专家数据和权重位于忽略目录 <code>pretrain_lab/output_vertical_add_v1/</code>。</p>
+<h4>迭代式单列数学专家 v1（2026-10-01）</h4>
+<p>基于前一版失败样例，改为显式消费数字的循环：专家每次只看到 <code>(a 当前位, b 当前位, carry)</code>，预测本位与新进位；外部循环把两条操作数的游标各向左移动一位，直至两个数取尽且 carry=0。操作数 payload 仅在专家步骤中解包，路由视图仍只有通用 <code>&lt;|PKG_ARITH|&gt;</code>。</p>
+<p>单列专家为 8,260 参数 MLP，输入状态有限且完备，共 <code>10×10×2=200</code> 种，训练后穷举输出 <strong>200/200 正确</strong>。冻结路由基座并以显式竖式意图规则分发后，端到端闭环测试 <code>3+9</code>、<code>999+1001</code>、<code>1234567+7654321</code>、<code>99999999+1</code> 和 100 位全 9 加 1 均正确；单列专家参数保持不变，循环步数随位宽增加。这个结果支持“固定局部专家 + 可重复迭代的结构化控制流”可处理未见更长数字。它不表示 Transformer 路由模型学会了任意宽度加法，也不表示单列规则超出其完整 200 状态域的泛化；竖式专家路由仍是规则分发。后续组合交互入口保留了原学习路由器与整数计算器路径：竖式触发词交给迭代专家，其余请求继续由原路由器判断。</p>
+<p>权重与完整单列状态数据保存在 Git 忽略目录 <code>pretrain_lab/output_iterative_digit_v1/</code>；训练脚本为 <code>09_train_iterative_digit_expert_v1.py</code>。前一版整段自回归 trace 专家保留于 <code>08_train_vertical_expert_v1.py</code> 作为负结果对照。</p>
+<h4>三类学习路由器 v1（2026-10-01）</h4>
+<p>为测试自动专家选择，将 CALCULATOR、VERTICAL_MATH_EXPERT、UNKNOWN 作为三类标签，从既有二分类 875,906 参数路由器迁移共享层并新增输出类别；迭代式单列专家冻结不动。首轮 2,400 条数据、12 条/类留出模板，留出准确率最高 55.6%。真实短句 <code>3+9 竖式计算</code> 被分类成 CALCULATOR，但已有安全门拦截，没有错误执行；完整句 <code>请对 1234567+7654321 做竖式计算</code> 可正确选中竖式专家，裸算式正确选中计算器，拒绝计算文本返回 UNKNOWN。</p>
+<p>把失败的后置触发短句及更多词序写入新训练集后，第二轮共 7,200 条、留出 52 条，10 轮微调；新路由器共 <strong>876,035 参数</strong>，约 14.4 秒。最佳留出集准确率 <strong>63.5%</strong>：CALCULATOR 81.3%、VERTICAL_MATH_EXPERT 70.0%、UNKNOWN 37.5%。错误混淆表明短句与 UNKNOWN 分类仍不可靠；留出仅 52 条且为合成措辞，不能据此宣称通用自动路由已解决。第二轮对之前失败的 <code>3+9 竖式计算</code> 现可自动选中数学专家，普通裸加法继续调用原计算器，明确拒绝计算请求返回 UNKNOWN。这一轮首次实际训练了三类专家选择能力，但还需更大、人工编写的盲测集评估。</p>
+
+<h4>路由类别重定义与两阶段架构对照（2026-10-01）</h4>
+<p>用户明确类别边界：<code>CALCULATOR</code> 请求直接计算结果；<code>VERTICAL_MATH_EXPERT</code> 请求逐位或竖式过程；<code>UNKNOWN</code> 是不属于这两个专家的任何请求，包括抄写、翻译、文本格式和符号检查等，不限于“算式相关但不要求计算”。v3 留出集 UNKNOWN→竖式的七个具体样例都属于未见过的非执行表达。其训练集虽有每类 2,400 条，但由较少模板反复采样，条数不等于独立表达数。</p>
+<p>新增 <code>pretrain_lab/11_train_router_eval_v4.py</code>：训练样本补入真实 package-first 控制视图、裸 package 默认求值及更宽的非数学文本处理请求；固定 36 条留出表达与训练句无完全重复。比较从同一 v3 权重出发的直接三分类，与“先判断是否属于两个数学专家，再选择计算器/竖式”的两阶段学习路由。留出准确率分别为 <strong>21/36（58.3%）</strong> 和 <strong>23/36（63.9%）</strong>；两阶段方案 UNKNOWN 误送专家 3/16，三分类为 4/16。v3 原权重在同一新留出集为 15/36（41.7%）。逐类正确数：三分类 C=4/10、V=5/10、U=12/16；两阶段 C=3/10、V=7/10、U=13/16。两阶段有小幅改善，但准确率仍不足，CALCULATOR 泛化尤其差；固定盲测只有 36 条，尚不足以确定架构优劣。</p>
+<p>三种权重在六条人工回归请求上均正确选择预期类别：<code>3+9 竖式计算</code>、裸算式 <code>909999999+1111</code>、完整竖式请求、明确要求只复述、直接计算较大加法及裸算式。此结果只说明这些已点测输入通过，不可替代盲测。数据与逐条错分记录位于忽略目录 <code>pretrain_lab/output_router_v4_reviewed/</code>，源码为 <code>pretrain_lab/11_train_router_eval_v4.py</code>。下一步应扩充独立人工表达及真实 package 控制视图后再决定架构，现阶段不将路由称为可靠解决。</p>
 
 </section>
 

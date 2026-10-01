@@ -1,0 +1,64 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>第一课延伸实验：自注意力、上下文与RNN</title><style>
+:root{--ink:#192d3c;--muted:#536b7d;--blue:#145b91;--line:#cedbe5}*{box-sizing:border-box}body{margin:0;background:#f3f7fa;color:var(--ink);font:16px/1.78 system-ui,"Microsoft YaHei",sans-serif}.page{max-width:1050px;margin:auto;padding:22px}.hero{padding:38px;background:linear-gradient(130deg,#174264,#5274a5);color:white;border-radius:20px}.hero h1{font-size:clamp(30px,5vw,46px);line-height:1.2;margin:14px 0}.tag{border:1px solid #c8dbf5;border-radius:99px;padding:3px 12px;font-size:13px}.nav{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}.nav a{color:var(--blue);background:white;padding:7px 11px;border:1px solid var(--line);border-radius:8px;text-decoration:none}section,.card{background:white;border:1px solid #e0e8ee;border-radius:13px;padding:22px;margin:17px 0}h2{color:#214f7f;margin:0 0 10px;font-size:25px}h3{color:#176186;margin:20px 0 8px}code,pre{font-family:Consolas,"Cascadia Code",monospace}code{background:#edf2f6;padding:1px 4px;border-radius:4px}pre{background:#101d29;color:#eaf2f7;padding:15px;border-radius:9px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}.diagram{overflow:auto;background:#f8fbfd;border:1px solid var(--line);border-radius:10px;padding:10px}.diagram svg{min-width:720px;width:100%;height:auto}.formula{background:#eff5f9;padding:12px;border-radius:8px;font:16px/1.8 Consolas,monospace;overflow-wrap:anywhere}.note{background:#fff7e7;border-left:5px solid #e6b75a;padding:12px 15px}.small{font-size:13px;color:var(--muted)}table{border-collapse:collapse;width:100%;margin:12px 0}td,th{border:1px solid var(--line);padding:9px;text-align:left;vertical-align:top}th{background:#edf5fa}footer{border-top:1px solid var(--line);padding-top:16px;color:var(--muted);font-size:13px;margin-top:28px}@media(max-width:650px){.page{padding:12px}.hero{padding:25px}section,.card{padding:16px}}
+</style></head><body><main class="page">
+<header class="hero"><span class="tag">三课系列 · 第一课延伸 · 机制拆解与运行 Demo</span><h1>自注意力、多头、上下文窗口<br>以及 RNN 为什么仍有道理</h1><p>上篇回答向量维度和参数怎样设；下篇把注意力一步步算出来，说明堆叠 Decoder 的结构、上下文限制来源，再用一个小 RNN 实验比较“显式读取历史”与“携带压缩状态”。</p></header>
+<nav class="nav"><a href="course-01-dense-decoder.html">← 第 1 课：稠密 Transformer 与 GPT</a><a href="course-02-moe.html">第 2 课：MoE →</a><a href="course-03-package-router.html">第 3 课：Package + 路由 →</a><a href="../README.md">实验室 README</a></nav>
+<section><h2>1. 自注意力到底算什么</h2><p>“自”表示 Query、Key、Value 都由同一条输入序列的隐藏向量投影而来。可以先把它想成：当前位置拿 Query 表达“我要找什么”；每个历史 token 的 Key 表达“我是什么”；点积得分决定相关性；softmax 把得分变成权重；最后用权重混合 Value 中携带的信息。</p><div class="formula">Q = XW_Q，K = XW_K，V = XW_V<br>Attention(Q,K,V) = softmax(QKᵀ / √dₖ + M) V</div><p>除以 √dₖ 是缩放点积，避免维度较大时点积数值过大、softmax 过尖。M 是遮罩。Decoder-only 语言模型使用 causal mask：第 t 个位置只可查看 ≤t 的 token，不能看右边的未来。训练时整句并行处理，但遮罩保证预测规则仍是“只根据前文”。</p><div class="diagram"><svg viewBox="0 0 900 220" role="img" aria-label="QKV self attention"><defs><marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0 0v6l8-3z" fill="#527389"/></marker></defs><g font-family="system-ui" text-anchor="middle" fill="#19364c"><rect x="20" y="65" width="150" height="82" rx="12" fill="#eaf3f8" stroke="#83a7c0"/><text x="95" y="96" font-size="16">输入状态 X</text><text x="95" y="122" font-size="13">[T,d_model]</text><rect x="230" y="20" width="130" height="48" rx="9" fill="#fff2da" stroke="#d1ad62"/><text x="295" y="50" font-size="15">Query Q</text><rect x="230" y="83" width="130" height="48" rx="9" fill="#eaf6ef" stroke="#78aa8b"/><text x="295" y="113" font-size="15">Key K</text><rect x="230" y="146" width="130" height="48" rx="9" fill="#f1eafa" stroke="#ac89b8"/><text x="295" y="176" font-size="15">Value V</text><rect x="440" y="65" width="185" height="82" rx="12" fill="#eaf3f8" stroke="#83a7c0"/><text x="532" y="96" font-size="15">相似度 QKᵀ/√dₖ</text><text x="532" y="122" font-size="13">加 causal mask + softmax</text><rect x="700" y="65" width="175" height="82" rx="12" fill="#eaf6ef" stroke="#78aa8b"/><text x="787" y="96" font-size="15">权重加权求和</text><text x="787" y="122" font-size="13">注意力输出</text><g stroke="#527389" stroke-width="2" marker-end="url(#arrow)" fill="none"><path d="M170 106h53"/><path d="M360 44C400 44 399 85 432 92"/><path d="M360 107h72"/><path d="M360 170C400 170 399 130 432 122"/><path d="M625 106h67"/></g></g></svg></div></section>
+<section><h2>2. Demo A · 同一句话怎样做 causal self-attention</h2><p>接着看上篇的 <code>I love you</code>。它有 3 个位置：I、love、you。为让注意力分数容易手算，我们先用 2 维玩具 Query/Key/Value 来演示遮罩规则；它们代表这 3 个位置经过投影后的简化结果，不是训练好的语义向量。每行对应一个 token，每列对应它可以读取的位置。</p><pre>import torch, math
+Q = torch.tensor([[1.,0.], [0.,1.], [1.,1.]])  # I, love, you
+K = torch.tensor([[1.,0.], [0.,1.], [1.,1.]])
+V = torch.tensor([[10.,0.], [0.,20.], [5.,5.]])
+scores = Q @ K.T / math.sqrt(2)
+mask = torch.triu(torch.full_like(scores, float("-inf")), diagonal=1)
+weights = torch.softmax(scores + mask, dim=-1)
+output = weights @ V
+print(weights.round(decimals=3))
+print(output.round(decimals=3))</pre><p>第 1 行只看 I；第 2 行能看 I 和 love；第 3 行能看 I、love、you。右上角未来位置被遮成负无穷，softmax 后权重为 0。这就是 decoder 用 causal mask 保证“预测下一个 token 时不偷看答案”的方式。</p><p class="small">这个微型例子强调注意力的数据流。实际模型的 Q/K/V 来自每层可训练的线性投影，并会在 Q/K 上按位置应用 RoPE。</p></section>
+<section><h2>3. 多头注意力：把同一串 token 放进多个子空间</h2><p>仍是 <code>I love you</code> 的三个 token。一个注意力头用一套 WQ/WK/WV 投影，学习一种读取上下文的方式；多头注意力让不同头并行处理各自的子空间，再拼接并投影回原宽度：</p><div class="formula">headᵢ = Attention(XWQᵢ, XWKᵢ, XVᵢ)<br>MHA(X) = Concat(head₁,…,headₕ) W_O</div><p>沿用上篇 Demo 得到的 X=[1,3,64]，若分成 4 个头，则 Q/K/V 变成 [1,4,3,16]；每个头产生 [1,4,3,3] 的注意力权重；合并后回到 [1,3,64]。三个 token 的第 t 行仍只能看第 1…t 列。实际投影矩阵是模型学习的参数。</p><p>如果 d_model=64、h=8，每头就宽 8；拼接后仍回到 64 维，不是 64×8。固定 d 时，普通 MHA 的 Q/K/V/O 总投影规模约为 4d²，单纯改变头数通常不改变这部分参数总量，却会改变子空间宽度。头太多会让每头很窄；GQA/MQA 则让多个 Query heads 共享较少 KV heads，以降低 KV cache 和推理带宽。</p><p>本地实测的 9.75M 教学配置在 d=64、L=1 下，h=4 与 h=8 参数量都为 9,754,752；每头维度分别为 16 和 8。</p></section>
+<section><h2>4. Decoder-only 模型的完整 block 与层数</h2><p>一个典型 pre-norm Decoder block 可读成：Norm → Causal Multi-Head Self-Attention → 残差相加 → Norm → SwiGLU/MLP → 残差相加。重复 L 次，最后做 final norm 和 LM Head。不同架构会改进归一化位置、激活函数、位置编码和 KV 分组，但这个骨架足以读懂第一性数据流。</p><div class="formula">Xₗ₊₁ = Xₗ + Attention(Norm(Xₗ))<br>Xₗ₊₁ = Xₗ₊₁ + MLP(Norm(Xₗ₊₁))</div><p>层数增加，让状态经过更多次“上下文混合 + 每位置非线性变换”，增强组合处理能力，但会线性增加 block 参数、训练计算，并使每层串行依赖更深。宽度增加会放大每层矩阵尺寸，通常每层参数近似按 d² 增长；MLP 中间宽度 m 也影响参数。实际模型参数量不仅由 L 决定：词表 embedding、d_model、MLP 规模、Attention/KV 头结构和权重绑定都会参与。</p><p>例如本项目的 Qwen2 风格教学模型有 151,646 词表 embedding 行。embedding 部分在 d=64 时已经约 9.71M；所以把 L 从 1 增到 4，全部参数从 9.754M 增到 9.903M，增长比例看起来很小，因为固定大词表矩阵占主导。把 d 增至 128 后，总量就接近 20M。解释参数变化时要分项看，不能只背“加层就乘几倍”。</p></section>
+<section><h2>5. 上下文长度由什么决定？</h2><p>上下文窗口 C 是模型一次允许处理的 token 数。它通常不由参数量直接推出，也不等于模型“读得懂”的长度。可分五层检查：</p><ol><li><b>位置机制与模型配置：</b>训练脚本的最大序列长度、position IDs、RoPE 配置或位置 embedding 表。绝对位置 embedding 若直接存一行/位置，会多出约 C·d 参数；RoPE 常不需要按每个位置存一行可训练 embedding，但会有长度相关设置。</li><li><b>训练数据与训练长度：</b>模型是否见过接近这个长度的序列，长距离信息是否被训练目标覆盖。配置接受更长输入不等于质量不变。</li><li><b>推理软件限制：</b>serving runtime 的 max sequence、RoPE scaling、KV cache 分配器、批处理策略和生成 token 上限都可能限制实际输入。</li><li><b>显存：</b>权重、KV cache、临时注意力张量、batch size 与并发共同占用。KV cache 是推理时已处理前缀的 Key/Value 存储。</li><li><b>算力与延迟：</b>全注意力 prefill 需比较每个位置，注意力分数矩阵大小约 T×T，序列长度翻倍时该矩阵约增至 4 倍。FlashAttention 减少中间存储和内存搬运，但不把全注意力本身变成常数成本。</li></ol><div class="formula">KV cache bytes ≈ 2 × L × B × T × n_kv × d_head × bytes/element<br>可用 prompt token ≈ context window − system/history/tools − reserved output</div><p>例：L=24、B=1、T=8192、n_kv=8、d_head=128、BF16=2 bytes 时 KV cache 为 805,306,368 bytes ≈ 0.75 GiB；T=262,144 时约 24 GiB，未含权重和临时显存。于是 256K 是否可用，不只是 position config 的问题。课前先对目标模型做长度扫描：短、中、长输入分别测检索准确率、首 token 延迟、总延迟、峰值显存和截断位置。</p><p>本实验室的教学训练器把 MAX_SEQ_LEN 设为 512，数据分块/截断也按这个值处理；这是项目这条训练管线的设定，不是所有 Qwen2 或 Transformer 的固定上下文长度。</p></section>
+<section><h2>6. RNN 为什么还有道理？</h2><p>RNN 按顺序更新一个状态：当前位置读入 xₜ 和上一步状态 hₜ₋₁，输出新状态 hₜ。它不保留全部 token 的两两注意力表，而把历史压缩进固定大小状态。LSTM/GRU 用门控让信息选择保留或覆盖；LSTM 是针对传统 RNN 长依赖训练困难提出的结构之一。</p><div class="formula">hₜ = f(xₜ, hₜ₋₁)<br>RNN 总序列工作量近似 O(T)，状态存储可固定；标准全注意力工作量约 O(T²·d)</div><table><tr><th>RNN / LSTM 优点</th><th>RNN / LSTM 代价</th><th>Transformer 对比</th></tr><tr><td>自然顺序处理；可边读边更新固定状态；长流式输入状态内存可不随历史长度线性增长。</td><td>训练时 hₜ 依赖 hₜ₋₁，时间步难并行；反向传播还需保存或重算中间状态；普通 RNN 有梯度消失/爆炸困难；固定状态压缩历史，旧细节不一定找得回来。</td><td>训练时同一层可并行算整段 token；任一位置可直接基于历史 token 做内容寻址；代价是全注意力预填充的平方成本和随长度增长的 KV cache。</td></tr><tr><td colspan="3">推理生成本身都要逐步产生下一个 token；Transformer 的优势主要在并行 prefill 和可直接寻址历史，RNN 的优势在顺序流式与有界状态。不能简单说哪一种普遍更快。</td></tr></table><p>所以你关于“RNN 可能弥补 Transformer 性能问题”的直觉值得讲：长输入、流式或低内存场景确实会考虑递归状态、状态空间层或混合结构。但要按任务测吞吐、延迟、记忆保真和质量。现代长序列研究如 S4 发展了结构化状态空间路线，它与经典 RNN 相关但不等同于 vanilla RNN。</p><p>原始 Transformer 比较的是无需 recurrent/convolution 的序列建模；LSTM 论文针对长依赖梯度问题提出门控记忆；S4 论文研究高效建模长序列。参见本页底部参考资料。</p></section>
+<section><h2>7. Demo B · 直接检查输入、向量与 logits 形状</h2><pre>from transformers import AutoTokenizer, Qwen2Config, Qwen2ForCausalLM
+import torch
+
+tok = AutoTokenizer.from_pretrained("tokenizer")
+V = max(len(tok), tok.eos_token_id+1, tok.pad_token_id+1)
+config = Qwen2Config(vocab_size=V, hidden_size=64, num_hidden_layers=1,
+    num_attention_heads=4, num_key_value_heads=4,
+    intermediate_size=170, max_position_embeddings=512,
+    hidden_act="silu", tie_word_embeddings=True, use_cache=False)
+model = Qwen2ForCausalLM(config)
+ids = torch.tensor([tok.encode("I love you", add_special_tokens=False)])
+with torch.no_grad():
+    x = model.model.embed_tokens(ids)
+    out = model(input_ids=ids)
+print(ids.shape, x.shape, out.logits.shape)
+print(sum(p.numel() for p in model.parameters()))</pre><p>本机实跑输出：ID <code>(1,3)</code>；embedding <code>(1,3,64)</code>；logits <code>(1,3,151646)</code>；参数 <code>9,754,752</code>。改 hidden_size、层数或头数再次执行，就能观察维度变化。本示例权重随机初始化，不会真正续写出有意义的语言。</p></section>
+<section><h2>8. Demo C · 用同一串 Embedding 对比 RNN 的递归状态</h2><p>现在仍输入 <code>I love you</code>，把上篇得到的 64 维 token embedding 逐个交给一个小 RNN。RNN 每读一个 token，就用新输入和上一步状态更新当前状态。</p><pre>import torch
+from torch import nn
+from transformers import AutoTokenizer, Qwen2Config, Qwen2ForCausalLM
+
+tok = AutoTokenizer.from_pretrained("tokenizer")
+ids = torch.tensor([tok.encode("I love you", add_special_tokens=False)])
+V = max(len(tok), tok.eos_token_id+1, tok.pad_token_id+1)
+cfg = Qwen2Config(vocab_size=V, hidden_size=64, num_hidden_layers=1,
+    num_attention_heads=4, num_key_value_heads=4, intermediate_size=170,
+    max_position_embeddings=512, tie_word_embeddings=True)
+embed = Qwen2ForCausalLM(cfg).model.embed_tokens
+x = embed(ids)  # [1, 3, 64]，I / love / you
+rnn = nn.RNN(input_size=64, hidden_size=16, batch_first=True)
+y, final_state = rnn(x)
+state, pieces = None, []
+for t in range(x.shape[1]):
+    part, state = rnn(x[:, t:t+1, :], state)
+    pieces.append(part)
+print(x.shape, y.shape, final_state.shape)
+print(torch.allclose(torch.cat(pieces, dim=1), y))</pre><p>形状依次是输入 <code>(1,3,64)</code>、RNN 输出 <code>(1,3,16)</code>、最终状态 <code>(1,1,16)</code>；逐个 token 传递状态与一次性调用的输出一致（True）。这段用相同 token 输入，对照的是两种信息流：Transformer 让位置通过注意力读取上下文；RNN 把历史浓缩在递归状态中。</p></section>
+<section><h2>9. Demo D · context 与显存估算</h2><pre>L, B, n_kv, d_head, bytes_per = 24, 1, 8, 128, 2
+for T in [8192, 262144]:
+    kv_bytes = 2 * L * B * T * n_kv * d_head * bytes_per
+    print(T, kv_bytes / 1024**3, "GiB")</pre><p>实跑输出：8,192 token → 0.75 GiB；262,144 token → 24.0 GiB，只算 KV cache。全套显存还要装模型权重和临时计算张量。512 到 8,192 token，注意力分数矩阵约扩大 256 倍，而顺序步数扩大 16 倍；这不是硬件时间预测，只用于看计算规模趋势。</p></section>
+<section><h2>10. 选型总结和自测</h2><p>Embedding 宽度 d_model、Decoder 层数 L、attention head 数 h、KV heads、MLP 中间宽度 m、词表 V 与上下文 T 是互相关联但不同的设计量。d 和 m 影响每层矩阵，L 重复 block，h 划分注意力子空间，T 影响可读历史长度、训练长度、KV cache 和 attention prefill 成本。</p><ol><li>当 d=64、heads=8 时每头宽度是多少？为什么头数翻倍不让投影参数翻倍？</li><li>模型把 context 从 8K 提到 256K，哪几项资源分别如何变化？</li><li>训练并行为什么是 Transformer 的长处？生成阶段还并行吗？</li><li>RNN 对流式输入有什么优势？它为何难并行，固定状态又损失什么？</li><li>怎样把“模型配置支持 256K”和“模型能在 256K 可靠回答”区分开？</li></ol><p class="note">本课当前在两台笔记本之一（4070 Laptop）实跑；4060 Laptop 和其他平台须按 README 验证。小 Demo 只验证数学/张量路径，不代表训练能力。</p></section>
+<section><h2>参考资料</h2><ul><li>Vaswani et al. (2017), <a href="https://arxiv.org/abs/1706.03762">Attention Is All You Need</a>：Scaled Dot-Product、Multi-Head Attention、mask 与并行序列训练。</li><li>Hochreiter & Schmidhuber (1997), <a href="https://doi.org/10.1162/neco.1997.9.8.1735">Long Short-Term Memory</a>：LSTM 门控记忆与传统 RNN 的长依赖问题。</li><li>Gu et al. (2021), <a href="https://arxiv.org/abs/2111.00396">Efficiently Modeling Long Sequences with Structured State Spaces</a>：结构化状态空间的长序列路线。SSM 与经典 RNN 思路相近但不是同一种模型。</li><li>本实验室代码：<a href="../03_train_pretrain.py">03_train_pretrain.py</a>（MAX_SEQ_LEN=512，Qwen2Config）；训练环境见 <a href="../README.md">README</a>。</li></ul></section>
+<footer>第一课延伸实验：进一步拆解注意力、上下文和 RNN。</footer>
+</main></body></html>
