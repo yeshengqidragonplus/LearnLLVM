@@ -7,6 +7,7 @@
 - [前言课：语言、意义与结构](courses/course-00-preface.html)
 - [第 1 课：稠密 Transformer、GPT 与预训练全流程](courses/course-01-dense-decoder.html)
 - [第 1 课延伸 Demo：注意力、上下文与 RNN](courses/course-01b-attention-context-rnn.html)
+- [Dense 前向逐步演示脚本](12_dense_walkthrough_v1.py)：默认逐步打印前向张量；加 `--train-demo --steps 20` 可观察单样本训练、loss 与梯度，并自动记录到独立 output 目录。
 - [第 2 课：MoE 专家架构与数字复制宽度实验](courses/course-02-moe.html)
 - [第 3 课：Package + 新式路由与渐进式专家](courses/course-03-package-router.html)
 
