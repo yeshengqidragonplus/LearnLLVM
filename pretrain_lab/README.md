@@ -135,6 +135,32 @@ python 11_train_router_eval_v4.py --train --device cuda --epochs 12
 
 v1 专家约 0.958M 参数，UTF-8 字节词表；1–4 位训练/验证，5–8 位未见宽度测试。RTX 4070 Laptop 上 6,000 条、12 轮、每轮 94 更新训练约 29 秒；train loss=0.02891、valid loss=0.01596。未见宽度测试每档 24 条，5/6/7/8 位均为 0/24 正确答案；随机 1–4 位验证小测也不稳定。token loss 低不代表学会算法。本次证明的是 package 可把展开后的 payload 交给一个独立训练专家，未证明专家掌握可泛化的逐位算法。数据和权重保存在被忽略的 `output_vertical_add_v1/`。
 
+## 3.4 通用底座种子 v0：首次试跑与问题复盘
+
+首次试跑使用以下脚本生成数据（已保留为历史对照，不作为当前架构数据入口）：
+
+```powershell
+python 13_prepare_code_package_v1.py
+```
+
+这批 61 条训练样本把用户请求、打包标记、路由结果、解包载荷和回答拼成了一段因果语言模型文本，未真正分开验证路由阶段与专家阶段。`temperature`、`probability` 只在留出集出现，因此当时把“熟悉概念解释”和“未见标识符泛化”混在一起测。基础 tokenizer 原先把 marker 切成 6 个 token；训练副本扩展后为单 ID 151646。
+
+本轮 RTX 4070 Laptop 训练的从零初始化模型共 9.80M 参数，20 轮后 train loss=9.6761、最低 validation loss=9.7247；12 道留出题均没有可用回答。这个结果表明模型没有学会任务；它不能评判分阶段 Package 架构。
+
+## 3.5 前置代码 Package、会话缓存与分阶段数据（v2）
+
+当前数据入口先在模型 tokenizer 之前调用 `code_package_frontend_v1.py`：从围栏/反引号代码或保守识别的 C 声明中提取代码区域，按顶层语句边界拆分子包，并将载荷存在本次请求的 `SessionCache`。自然语言输入中不要求用户写 `<|PKG_CODE|>`。前端生成父包/子包句柄和路由视图；路由视图只含意图与专用包类型 token，代码字符串、子包数量和缓存句柄都不喂给路由模型。路由命中后，控制器用子包句柄从会话缓存取出载荷，交给代码专家解析。
+
+```powershell
+python code_package_frontend_v1.py --self-test
+python code_package_frontend_v1.py --request '解释这段代码：int count = 3;'
+python 16_prepare_code_package_v2.py
+```
+
+`16_prepare_code_package_v2.py` 只准备和审计数据，不启动训练。它输出独立的 `router_train/eval` 与 `expert_train/eval` JSONL：路由数据不含源代码载荷；专家样本包含由缓存解包得到的子 `<|PKG_CODE|>` 和对应代码。专家评估集分成训练中见过的变量名（只换值）与未见标识符两组，避免把两种泛化混成一个分数。当前审计通过：专用 token ID=151646，路由载荷泄漏 0；路由训练/评估 14/6 条，代码专家训练/评估 16/6 条，其中 4 条未见标识符。样本量仍只够做接口和初步行为检查，不足以得出能力扩展结论。
+
+前端目前是 C 代码打包原型：支持代码围栏、反引号与简单声明检测；分号切分会保护字符串、括号和 `for` 头部，但不是完整 C/C++ 词法器或 AST。宏、复杂声明、多种语言和长生命周期缓存尚未实现。当前 v2 数据没有训练路由器或代码专家；先审核数据与流水线，再开始独立训练，避免覆盖 v0 运行目录。
+
 ## 4. 两台笔记本的正式实验入口
 
 先生成同一份数据（本地已有 tokenizer，无需重复下载）：

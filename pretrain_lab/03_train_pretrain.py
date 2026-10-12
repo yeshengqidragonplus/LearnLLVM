@@ -28,7 +28,7 @@ import torch
 from runtime import add_runtime_args, resolve_runtime
 from runtime import environment_info
 from torch.utils.data import DataLoader, TensorDataset
-from transformers import Qwen2Config, Qwen2ForCausalLM, AutoTokenizer
+from transformers import AddedToken, Qwen2Config, Qwen2ForCausalLM, AutoTokenizer
 
 # Windows 控制台输出 UTF-8，避免中文乱码
 try:
@@ -85,6 +85,8 @@ _parser.add_argument("--nave", action="store_true",
                           "让数在潜空间成为整体（绕开复制通道定宽墙）。默认关。")
 _parser.add_argument("--nave-theta", type=int, default=8,
                      help="NAVE 连续位权编码的角度数（2*n 维输出），默认 8")
+_parser.add_argument("--package-code-token", action="store_true",
+                     help="注册单一特殊 token <|PKG_CODE|>；仅用于代码 Package 实验，扩展词表并随模型保存")
 add_runtime_args(_parser)
 _args = _parser.parse_args()
 DEVICE, DTYPE = resolve_runtime(_args.device, _args.dtype)
@@ -128,9 +130,21 @@ log(f"[1/7] 数据集加载完成：{len(texts)} 条样本 <- {DATA_PATH}")
 tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_DIR)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
+added_tokens = []
+if _args.package_code_token:
+    package_token = "<|PKG_CODE|>"
+    previous = tokenizer.encode(package_token, add_special_tokens=False)
+    tokenizer.add_special_tokens({"additional_special_tokens": [
+        AddedToken(package_token, special=True, normalized=False)
+    ]})
+    package_ids = tokenizer.encode(package_token, add_special_tokens=False)
+    if len(package_ids) != 1:
+        raise SystemExit(f"[错误] Package 标记没有成为单 token：{package_ids}")
+    added_tokens.append({"token": package_token, "id": package_ids[0],
+                         "previous_ids": previous})
 # 词表大小必须覆盖特殊 token id（Qwen2 的 eos=151643 == vocab_size，直接用它做 embedding 行数会越界）
 VOCAB_SIZE = max(len(tokenizer), tokenizer.eos_token_id + 1, tokenizer.pad_token_id + 1)
-log(f"[2/7] Tokenizer 加载完成：vocab_size = {VOCAB_SIZE}（eos={tokenizer.eos_token_id}）")
+log(f"[2/7] Tokenizer 加载完成：vocab_size = {VOCAB_SIZE}（eos={tokenizer.eos_token_id}，新增 token={added_tokens}）")
 
 # 每次实验自带可公开分享的元数据；不保存本机用户名、主机名或环境变量。
 def sha256_file(path):
@@ -154,6 +168,7 @@ run_record = {
     "script_sha256": {p.name: sha256_file(p) for p in Path(__file__).parent.glob("*.py")},
     "data": {"samples": len(texts), "sha256": sha256_file(DATA_PATH)},
     "tokenizer_sha256": {p.name: sha256_file(p) for p in Path(TOKENIZER_DIR).iterdir() if p.is_file()},
+    "added_tokens": added_tokens,
     "effective_batch_size": BATCH_SIZE, "epochs": [],
 }
 
@@ -511,6 +526,10 @@ log(f"[7/7] 训练结束，总耗时 {time.time() - t0:.0f}s")
 # ================= 7. 保存最终完整模型 =================
 model.save_pretrained(FINAL_DIR)
 tokenizer.save_pretrained(FINAL_DIR)
+run_record["trained_tokenizer_sha256"] = {
+    p.name: sha256_file(p) for p in Path(FINAL_DIR).iterdir()
+    if p.is_file() and ("tokenizer" in p.name or p.name == "special_tokens_map.json")
+}
 # NAVE 编码器单独存：from_pretrained 不会加载非 config 声明的子模块（nave.*），
 # 评估时必须手动 load 这个文件（见 04e_eval_v5.py）
 if NAVE is not None:
