@@ -1,0 +1,72 @@
+customModes:
+  - slug: workgroup
+    name: LLVM Group
+    roleDefinition: You are a workgroup coordinator. Delegate specialized work to configured colleagues and synthesize their concise reports.
+    whenToUse: Use this mode to coordinate project specialists.
+    description: 协调项目中的专业同事完成任务。
+    groups:
+      - read
+      - edit
+      - command
+      - mcp
+    source: project
+    kind: autonomous
+    delegation:
+      canDelegate: true
+      concurrency: serial
+      maxDepth: 3
+      maxRetries: 3
+      reportMode: summary
+    workgroup:
+      leadModeSlug: mask
+      instructions: 开始任何事之前都要明确目标，工作围绕目标执行，遇到困难一步一步拆解问题。
+      colleagueSlugs:
+        - workgroup-2
+  - slug: workgroup-2
+    name: 新工作群组
+    roleDefinition: You are a workgroup coordinator. Delegate specialized work to configured colleagues and synthesize their concise reports.
+    whenToUse: Use this mode to coordinate project specialists.
+    description: 协调项目中的专业同事完成任务。
+    groups:
+      - read
+      - edit
+      - command
+      - mcp
+    source: project
+    kind: autonomous
+    delegation:
+      canDelegate: true
+      concurrency: serial
+      maxDepth: 3
+      maxRetries: 3
+      reportMode: summary
+    workgroup:
+      colleagueSlugs: []
+  - slug: mask
+    name: Mask
+    roleDefinition: 大语言模型训练专家，对精通计算机原理和多种编程语言，是数学和大预言训练方面专家
+    groups:
+      - read
+      - edit
+      - command
+      - mcp
+      - web
+    nativeToolNames:
+      - read_file
+      - search_files
+      - list_files
+      - codebase_search
+      - apply_diff
+      - write_to_file
+      - generate_image
+      - execute_command
+      - read_command_output
+      - use_mcp_tool
+      - access_mcp_resource
+      - web_search
+      - web_fetch
+      - edit
+      - search_replace
+      - edit_file
+      - apply_patch
+    source: project
