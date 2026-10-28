@@ -92,11 +92,34 @@ _parser.add_argument("--nave", action="store_true",
                           "让数在潜空间成为整体（绕开复制通道定宽墙）。默认关。")
 _parser.add_argument("--nave-theta", type=int, default=8,
                      help="NAVE 连续位权编码的角度数（2*n 维输出），默认 8")
+_parser.add_argument("--protocol-tokens", action="store_true",
+                     help="注册整套协议标记（6 个 PKG_* + 8 个动作），ID 与 tokens.json 对齐；"
+                          "所有医生（门诊/各科室）都必须用同一套 ID，否则跨模型交接会失效")
 _parser.add_argument("--package-code-token", action="store_true",
                      help="注册单一特殊 token <|PKG_CODE|>；仅用于代码 Package 实验，扩展词表并随模型保存")
 _parser.add_argument("--package-nested-tokens", action="store_true",
                      help="注册嵌套原子包 token <|PKG_NUM|>/<|PKG_NAME|>（方案 A）；"
                           "用于 C/C++ 声明双向数据，数值与标识符各占一个专用 token")
+_parser.add_argument("--dump-split", action="store_true",
+                     help="把本次 run 的 val 划分写到 <out>/val_split.jsonl；"
+                          "评估脚本据此报 held-out 分数（划分依赖全局随机状态，不导出无法复现）")
+_parser.add_argument("--package-id-tokens", action="store_true",
+                     help="注册包编号 #0..#400（401 个），每个注册成单 token。"
+                          "编号必须整体编码：拆开写 #123 是 4 个普通 token，"
+                          "模型要逐字符生成，实测会撞复制宽度"
+                          "（#94变成#949 多吞一位、#1331变成#1313 顺序乱）。"
+                          "整体编码后引用 <|PKG_NUM|>#123 恒为 2 token，"
+                          "包表 22 项 65 token（拆开 114），省 43 个百分点。"
+                          "需配合 --protocol-tokens（ID 从 151660 起，见 tokens.json）。")
+_parser.add_argument("--package-keys", action="store_true",
+                     help="[已废弃] 旧的 156 个 per-key 方案（<|PKG_NUM|,#B>）。"
+                          "它把同类型包拆成各自独立的 embedding，与「同类型共用 token」"
+                          "的设计冲突，且未训练的 key 无法工作。请改用 --package-id-tokens。")
+_parser.add_argument("--max-seq-len", type=int, default=None,
+                     help="位置编码容量 max_position_embeddings（默认 512，即 MAX_SEQ_LEN）。"
+                          "注意：--no-pack 模式**不截断**样本，数据多长就送多长，本参数只决定 "
+                          "RoPE 外推倍数。长上下文探针需按最长样本设置（实测：1617 token 样本在 "
+                          "512 下外推 3.2 倍，需设为 1024 才有意义）。")
 _parser.add_argument("--target-mask", action="store_true",
                      help="只对 target 计 loss（分阶段设计的必需开关）：数据每行必须同时有 "
                           "prompt 与 target 字段，prompt 与 eos 前缀位置一律置 -100。"
@@ -110,6 +133,13 @@ if _args.no_pack:
     BATCH_SIZE = _args.batch if _args.batch else 64   # 独立短样本，batch 加大提速
 
 NUM_EPOCHS = _args.epochs
+
+# --max-seq-len 覆盖位置编码容量（默认沿用上面的 512）。
+# 只在显式传入时改变，保证既有实验（数学 v5 等）的 config 与切块行为逐字复现。
+if _args.max_seq_len is not None:
+    if _args.max_seq_len <= 0:
+        raise SystemExit("[错误] --max-seq-len 必须为正整数")
+    MAX_SEQ_LEN = _args.max_seq_len
 
 DATA_PATH = _args.data
 TOKENIZER_DIR = "tokenizer"
@@ -163,11 +193,106 @@ def _register_package_token(token_str: str) -> dict:
         raise SystemExit(f"[错误] {token_str} 没有成为单 token：{ids}")
     return {"token": token_str, "id": ids[0], "previous_ids": previous}
 
+# 协议标记表：所有医生（门诊/各科室）必须共用同一套标记 ID，
+# 否则门诊写的 <|ROUTE|>，声明科会读成另一个 ID，交接当场失效。
+# 见 DESIGN_protocol_v1.md §1.4 C2 与 pretrain_lab/tokens.json。
+_PROTOCOL_TOKENS = [
+    "<|PKG_ARITH|>", "<|PKG_CODE|>", "<|PKG_NUM|>", "<|PKG_NAME|>",
+    "<|PKG_TEXT|>", "<|PKG_TASK|>",
+    "<|ASK|>", "<|ROUTE|>", "<|VERIFY|>", "<|OUTPUT|>",
+    "<|DONE|>", "<|FAIL|>", "<|SPLIT|>", "<|MERGE|>",
+]
+
 if _args.package_code_token:
     added_tokens.append(_register_package_token("<|PKG_CODE|>"))
 if _args.package_nested_tokens:
     added_tokens.append(_register_package_token("<|PKG_NUM|>"))
     added_tokens.append(_register_package_token("<|PKG_NAME|>"))
+if _args.protocol_tokens:
+    # 按 tokens.json 的顺序注册，保证 ID 与全局标记表一致（C2 硬约束）。
+    for _tok in _PROTOCOL_TOKENS:
+        if any(a["token"] == _tok for a in added_tokens):
+            continue     # 已被上面的具体开关注册过
+        added_tokens.append(_register_package_token(_tok))
+    _actual = {a["token"]: a["id"] for a in added_tokens}
+    _spec_path = Path(__file__).with_name("tokens.json")
+    if _spec_path.exists():
+        _spec = json.loads(_spec_path.read_text(encoding="utf-8"))
+        _expect = {**_spec.get("package_markers", {}), **_spec.get("base_actions", {})}
+        _bad = [(t, _actual.get(t), i) for t, i in _expect.items()
+                if t in _actual and _actual[t] != i]
+        if _bad:
+            raise SystemExit(f"[错误] 标记 ID 与 tokens.json 不一致：{_bad}")
+        log(f"[2/7] 协议标记表校验通过：{len(_expect)} 个标记 ID 与 tokens.json 一致")
+
+if _args.package_keys:
+    raise SystemExit(
+        "[错误] --package-keys 已废弃。\n"
+        "它把包做成 156 个 per-key token（<|PKG_NUM|,#A> … <|PKG_TASK|,#Z>），"
+        "同类型包各占一行独立 embedding，与「同类型共用 token」的设计冲突；\n"
+        "且未进过训练集的 key 那行 embedding 是随机的，实测 0/60。\n"
+        "请改用 --package-id-tokens（编号 #0..#400 整体编码成单 token）。")
+
+if _args.package_id_tokens:
+    # ---- 包编号：整体编码 ----
+    # 编号必须是一个不可分的 token：`#123` 拆开是 ['#','1','2','3']，
+    # 模型要逐字符生成 → 必然撞复制宽度（实测 #94→#949、#1331→#1313）。
+    # 整体编码后模型只需「选一个编号」，不需要逐字符复现。
+    #
+    # 参考形态：<|PKG_NUM|>#123  = 2 token
+    #   第 1 个：类型标记（6 个之一，同类型共用 embedding）
+    #   第 2 个：编号 token（401 个，所有类型共享同一套编号）
+    from tokenizers import AddedToken as _AT
+    _id_spec = json.loads(
+        Path(__file__).with_name("tokens.json").read_text(encoding="utf-8")
+    )["_id_tokens"]
+    _n_ids = int(_id_spec["count"])          # 401
+    _base = int(_id_spec["id_base"])         # 151660
+    _id_tokens = [f"#{n}" for n in range(_n_ids)]
+
+    # 注册前先确认起始 ID 与当前词表对得上（否则整批编号的 ID 会错位）
+    _cur = max(len(tokenizer), tokenizer.eos_token_id + 1)
+    if _cur != _base:
+        raise SystemExit(
+            f"[错误] 编号起始 ID 不匹配：当前词表 {_cur}，tokens.json 期望 {_base}。"
+            f"（--package-id-tokens 必须与 --protocol-tokens 一起用，"
+            f"14 个协议标记占 151646..151659）")
+
+    tokenizer.add_special_tokens({"additional_special_tokens": [
+        _AT(t, special=True, normalized=False) for t in _id_tokens
+    ]})
+    _id_records = []
+    _mis = []
+    for _off, _t in enumerate(_id_tokens):
+        _ids_got = tokenizer.encode(_t, add_special_tokens=False)
+        _expect_id = _base + _off
+        if len(_ids_got) != 1:
+            _mis.append(f"{_t} 不是单 token：{_ids_got}")
+        elif _ids_got[0] != _expect_id:
+            _mis.append(f"{_t} id={_ids_got[0]} 应为 {_expect_id}")
+        else:
+            _id_records.append({"token": _t, "id": _ids_got[0]})
+    if _mis:
+        raise SystemExit("[错误] 编号 token 注册异常：" + "；".join(_mis[:5]))
+
+    # 拼接边界：encoded(标记 + 编号) 必须等于两段分别编码后拼接。
+    # --target-mask 的监督位置依赖这一点，错位时不会报错、只会静默算错 loss。
+    _edge_bad = []
+    for _m in ("<|PKG_NUM|>", "<|PKG_NAME|>", "<|PKG_TEXT|>"):
+        for _t in ("#0", "#7", "#123", "#400"):
+            _whole = tokenizer.encode(_m + _t, add_special_tokens=False)
+            _parts = (tokenizer.encode(_m, add_special_tokens=False)
+                      + tokenizer.encode(_t, add_special_tokens=False))
+            if _whole != _parts:
+                _edge_bad.append(f"{_m}+{_t}")
+    if _edge_bad:
+        raise SystemExit(
+            "[错误] 标记与编号拼接处 token 边界不一致（--target-mask 会算错）："
+            + "；".join(_edge_bad[:5]))
+
+    added_tokens.extend(_id_records)
+    log(f"[2/7] 包编号注册完成：{len(_id_tokens)} 个（#0..#{_n_ids - 1}），"
+        f"ID {_base}..{_base + len(_id_tokens) - 1}，全部单 token，拼接边界成立")
 # 词表大小必须覆盖特殊 token id（Qwen2 的 eos=151643 == vocab_size，直接用它做 embedding 行数会越界）
 VOCAB_SIZE = max(len(tokenizer), tokenizer.eos_token_id + 1, tokenizer.pad_token_id + 1)
 log(f"[2/7] Tokenizer 加载完成：vocab_size = {VOCAB_SIZE}（eos={tokenizer.eos_token_id}，新增 token={added_tokens}）")
@@ -399,6 +524,16 @@ n_val = int(len(rows) * VAL_RATIO)
 val_rows, train_rows = rows[:n_val], rows[n_val:]
 val_texts = [r["text"] for r in val_rows]
 train_texts = [r["text"] for r in train_rows]
+
+# 导出本次 run 的 val 划分：评估脚本必须用同一份 val 才能报 held-out 分数。
+# 不导出的话，"val 分数"无法复现（划分依赖 random.shuffle 的全局状态）。
+if _args.dump_split:
+    _split_path = Path(_args.out) / "val_split.jsonl"
+    _split_path.parent.mkdir(parents=True, exist_ok=True)
+    with _split_path.open("w", encoding="utf-8", newline="\n") as _f:
+        for _r in val_rows:
+            _f.write(json.dumps(_r, ensure_ascii=False) + "\n")
+    log(f"[4/7] val 划分已导出：{_split_path}（{len(val_rows)} 条）")
 
 if _args.no_pack:
     # 独立样本模式：每条 = [eos] + prompt + target + [eos]，batch 内 padding + attention mask。
